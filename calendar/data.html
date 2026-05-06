@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+  <title>Данные рынка</title>
+
+  <link rel="stylesheet" href="style.css">
+  <script src="mobile-menu.js"></script>
+</head>
+
+<body>
+
+<header class="global-nav">
+  <div class="global-nav-inner">
+    <a href="index.html" class="logo">Trading Notes</a>
+
+    <div class="data-links">
+      <a href="data.html">Данные</a>
+      <a href="calendar/calendar-page.html">Календарь</a>
+      <a href="rates.html">Ставки</a>
+      <a href="heatmap.html">Карта</a>
+    </div>
+
+    <nav class="nav-links">
+      <a href="macro.html">Макроэкономика</a>
+      <a href="theory.html">Теория</a>
+      <a href="news.html">Новости</a>
+      <a href="psychology.html">Психология</a>
+    </nav>
+  </div>
+</header>
+
+<div class="mobile-quick-menu" data-mobile-quick-menu>
+  <button class="mobile-quick-menu-button" type="button" data-mobile-menu-toggle aria-label="Открыть меню разделов" aria-expanded="false">
+    <span></span>
+    <span></span>
+    <span></span>
+  </button>
+
+  <div class="mobile-quick-menu-panel" data-mobile-menu-panel>
+    <a href="data.html">Данные</a>
+    <a href="calendar/calendar-page.html">Календарь</a>
+    <a href="rates.html">Ставки</a>
+    <a href="heatmap.html">Карта</a>
+  </div>
+</div>
+
+<main class="page">
+
+  <a href="index.html" class="back-pill">Назад на главную</a>
+
+  <header class="page-header">
+    <h1 class="page-title">Данные рынка</h1>
+    <p class="page-subtitle">
+      Forex, сырье, металлы и криптовалюты в одном разделе.
+    </p>
+  </header>
+
+  <section class="data-toolbar">
+    <button class="refresh-button" id="refreshButton" type="button">
+      Обновить
+    </button>
+  </section>
+
+  <section class="market-content" id="marketContent">
+    <article class="market-card skeleton-card">
+      <p class="loading-text">Загружаем данные...</p>
+    </article>
+  </section>
+
+  <p class="data-note" id="dataNote"></p>
+
+</main>
+
+<script src="data.js"></script>
+
+</body>
+</html>
