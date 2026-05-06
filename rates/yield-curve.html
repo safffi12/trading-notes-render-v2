@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+  <title>Yield Curve - Trading Notes</title>
+
+  <link rel="stylesheet" href="../style.css">
+  <script src="../mobile-menu.js" defer></script>
+</head>
+
+<body data-rate-id="yieldcurve">
+
+<header class="global-nav">
+  <div class="global-nav-inner">
+    <a href="../index.html" class="logo">Trading Notes</a>
+
+    <div class="data-links">
+      <a href="../data.html">Данные</a>
+      <a href="../calendar.html">Календарь</a>
+      <a href="../rates.html" class="is-active">Ставки</a>
+      <a href="../heatmap.html">Карта</a>
+    </div>
+
+    <nav class="nav-links">
+      <div class="nav-item">
+        <a href="../macro.html" class="nav-link">Макроэкономика</a>
+        <div class="dropdown-menu">
+          <a href="../macro-1.html">Топливный кризис США</a>
+        </div>
+      </div>
+
+      <div class="nav-item">
+        <a href="../theory.html" class="nav-link">Теория</a>
+        <div class="dropdown-menu">
+          <a href="../theory-1.html">Закон Оукена</a>
+        </div>
+      </div>
+
+      <div class="nav-item">
+        <a href="../news.html" class="nav-link">Новости</a>
+        <div class="dropdown-menu">
+          <a href="../news-1.html">Обзор рынка</a>
+        </div>
+      </div>
+
+      <div class="nav-item">
+        <a href="../psychology.html" class="nav-link">Психология</a>
+        <div class="dropdown-menu">
+          <a href="../psychology-1.html">FOMO</a>
+        </div>
+      </div>
+    </nav>
+  </div>
+</header>
+
+<div class="mobile-quick-menu" data-mobile-quick-menu>
+  <button class="mobile-quick-menu-button" type="button" data-mobile-menu-toggle aria-label="Открыть меню разделов" aria-expanded="false">
+    <span></span>
+    <span></span>
+    <span></span>
+  </button>
+
+  <div class="mobile-quick-menu-panel" data-mobile-menu-panel>
+    <a href="../data.html">Данные</a>
+    <a href="../calendar.html">Календарь</a>
+    <a href="../rates.html">Ставки</a>
+    <a href="../heatmap.html">Карта</a>
+  </div>
+</div>
+
+<main id="rateDetail" class="page rates-detail-page"></main>
+
+<script src="rates-detail.js"></script>
+<script src="../site-session.js"></script>
+</body>
+</html>

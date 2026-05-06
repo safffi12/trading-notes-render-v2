@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+  <title>Тепловая карта</title>
+
+  <link rel="stylesheet" href="style.css">
+  <script src="mobile-menu.js"></script>
+</head>
+
+<body>
+
+  <header class="global-nav">
+    <div class="global-nav-inner">
+      <a href="index.html" class="logo">Trading Notes</a>
+
+      <div class="data-links">
+        <a href="data.html">Данные</a>
+        <a href="calendar.html">Календарь</a>
+        <a href="rates.html">Ставки</a>
+        <a href="heatmap.html">Карта</a>
+      </div>
+
+      <nav class="nav-links">
+        <a href="macro.html">Макроэкономика</a>
+        <a href="theory.html">Теория</a>
+        <a href="news.html">Новости</a>
+        <a href="psychology.html">Психология</a>
+      </nav>
+    </div>
+  </header>
+
+  <div class="mobile-quick-menu" data-mobile-quick-menu>
+  <button class="mobile-quick-menu-button" type="button" data-mobile-menu-toggle aria-label="Открыть меню разделов" aria-expanded="false">
+    <span></span>
+    <span></span>
+    <span></span>
+  </button>
+
+  <div class="mobile-quick-menu-panel" data-mobile-menu-panel>
+    <a href="data.html">Данные</a>
+    <a href="calendar/calendar-page.html">Календарь</a>
+    <a href="rates.html">Ставки</a>
+    <a href="heatmap.html">Карта</a>
+  </div>
+</div>
+
+  <main class="page">
+
+    <a href="index.html" class="back-link">← Назад на главную</a>
+
+    <header class="page-header">
+      <h1 class="page-title">Тепловая карта рынка</h1>
+      <p class="page-description">
+        Визуальная карта изменения активов. Чем больше блок, тем выше вес инструмента. Цвет показывает направление и силу движения.
+      </p>
+    </header>
+
+    <section class="heatmap-controls">
+      <button class="heatmap-tab active" data-map="stocks">S&P 500</button>
+
+      <button class="heatmap-tab heatmap-tab-two-lines" data-map="russia">
+        Индекс<br>российского рынка
+      </button>
+
+      <button class="heatmap-tab" data-map="dax">DAX</button>
+      <button class="heatmap-tab" data-map="stoxx">STOXX 50</button>
+      <button class="heatmap-tab" data-map="crypto">Crypto</button>
+    </section>
+
+    <section class="heatmap-panel">
+      <div id="heatmapWidget" class="heatmap-widget"></div>
+    </section>
+
+  </main>
+
+  <script>
+    const heatmapWidget = document.getElementById("heatmapWidget");
+    const heatmapTabs = document.querySelectorAll(".heatmap-tab");
+
+    const stockHeatmapScript = "https://s3.tradingview.com/external-embedding/embed-widget-stock-heatmap.js";
+    const cryptoHeatmapScript = "https://s3.tradingview.com/external-embedding/embed-widget-crypto-coins-heatmap.js";
+
+    function createStockConfig(dataSource, showTopBar = false) {
+      return {
+        exchanges: [],
+        dataSource: dataSource,
+        grouping: "sector",
+        blockSize: "market_cap_basic",
+        blockColor: "change",
+        locale: "ru",
+        symbolUrl: "",
+        colorTheme: "light",
+        hasTopBar: showTopBar,
+        isDataSetEnabled: showTopBar,
+        isZoomEnabled: true,
+        hasSymbolTooltip: true,
+        isMonoSize: false,
+        width: "100%",
+        height: "100%"
+      };
+    }
+
+    const maps = {
+      stocks: {
+        script: stockHeatmapScript,
+        config: createStockConfig("SPX500", false)
+      },
+
+      russia: {
+        script: stockHeatmapScript,
+        config: createStockConfig("AllRU", true)
+      },
+
+      dax: {
+        script: stockHeatmapScript,
+        config: createStockConfig("AllDE", true)
+      },
+
+      stoxx: {
+        script: stockHeatmapScript,
+        config: createStockConfig("AllEU", true)
+      },
+
+      crypto: {
+        script: cryptoHeatmapScript,
+        config: {
+          dataSource: "Crypto",
+          blockSize: "market_cap_calc",
+          blockColor: "24h_close_change|5",
+          locale: "ru",
+          symbolUrl: "",
+          colorTheme: "light",
+          hasTopBar: false,
+          isDataSetEnabled: false,
+          isZoomEnabled: true,
+          hasSymbolTooltip: true,
+          width: "100%",
+          height: "100%"
+        }
+      }
+    };
+
+    function loadHeatmap(type) {
+      const map = maps[type];
+
+      if (!map) {
+        console.error("Неизвестная карта:", type);
+        return;
+      }
+
+      heatmapWidget.innerHTML = "";
+
+      const container = document.createElement("div");
+      container.className = "tradingview-widget-container";
+
+      const widget = document.createElement("div");
+      widget.className = "tradingview-widget-container__widget";
+
+      const script = document.createElement("script");
+      script.type = "text/javascript";
+      script.src = map.script;
+      script.async = true;
+      script.innerHTML = JSON.stringify(map.config);
+
+      container.appendChild(widget);
+      container.appendChild(script);
+      heatmapWidget.appendChild(container);
+    }
+
+    heatmapTabs.forEach((button) => {
+      button.addEventListener("click", () => {
+        heatmapTabs.forEach((item) => item.classList.remove("active"));
+        button.classList.add("active");
+
+        loadHeatmap(button.dataset.map);
+      });
+    });
+
+    loadHeatmap("stocks");
+  </script>
+<script src="site-session.js"></script>
+</body>
+</html>

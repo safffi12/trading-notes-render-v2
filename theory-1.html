@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Закон Оукена</title>
+
+  <link rel="stylesheet" href="style.css">
+
+  <script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+  <script src="mobile-menu.js"></script>
+</head>
+
+<body class="article-page">
+
+<header class="global-nav">
+  <div class="global-nav-inner">
+    <a href="index.html" class="logo">Trading Notes</a>
+
+<div class="data-links">
+  <a href="data.html">Данные</a>
+  <a href="calendar.html">Календарь</a>
+  <a href="rates.html">Ставки</a>
+  <a href="heatmap.html">Карта</a>
+</div>
+
+    <nav class="nav-links">
+      <div class="nav-item">
+        <a href="macro.html" class="nav-link">Макроэкономика</a>
+
+        <div class="dropdown-menu">
+          <a href="macro-1.html">Топливный кризис США</a>
+        </div>
+      </div>
+
+      <div class="nav-item">
+        <a href="theory.html" class="nav-link">Теория</a>
+
+        <div class="dropdown-menu">
+          <a href="theory-1.html">Закон Оукена</a>
+        </div>
+      </div>
+
+      <div class="nav-item">
+        <a href="news.html" class="nav-link">Новости</a>
+
+        <div class="dropdown-menu">
+          <a href="news-1.html">Обзор рынка</a>
+        </div>
+      </div>
+
+      <div class="nav-item">
+        <a href="psychology.html" class="nav-link">Психология</a>
+
+        <div class="dropdown-menu">
+          <a href="psychology-1.html">FOMO</a>
+        </div>
+      </div>
+    </nav>
+  </div>
+</header>
+
+<div class="mobile-quick-menu" data-mobile-quick-menu>
+  <button class="mobile-quick-menu-button" type="button" data-mobile-menu-toggle aria-label="Открыть меню разделов" aria-expanded="false">
+    <span></span>
+    <span></span>
+    <span></span>
+  </button>
+
+  <div class="mobile-quick-menu-panel" data-mobile-menu-panel>
+    <a href="data.html">Данные</a>
+    <a href="calendar/calendar-page.html">Календарь</a>
+    <a href="rates.html">Ставки</a>
+    <a href="heatmap.html">Карта</a>
+  </div>
+</div>
+
+<main class="article">
+
+  <h1>Закон Оукена</h1>
+
+  <p>
+    Закон Оукена — это эмпирическая зависимость между изменением уровня безработицы и
+    отклонением фактического выпуска экономики от потенциального (разрыва ВВП).
+  </p>
+
+  <p>
+    Сам по себе закон звучит очень логично: рост безработицы (ее отклонение от базового уровня)
+    приводит к падению реального ВВП относительно потенциального.
+    Принято считать, что при росте безработицы на 1 пункт выше естественного уровня разрыв выпуска
+    сокращается на 2-3% относительно потенциального ВВП. Коэффициент бывает разный и зависит от конкретных условий
+    рынка труда.
+  </p>
+
+  <div>
+    \[
+    \frac{Y - Y^{*}}{Y^{*}} = -k \cdot (u - u^{*})
+    \]
+  </div>
+
+  <ul>
+    <li>Y — фактический ВВП</li>
+    <li>Y* — потенциальный ВВП</li>
+    <li>u — уровень безработицы</li>
+    <li>u* — естественный уровень безработицы</li>
+    <li>k — коэффициент Оукена</li>
+  </ul>
+
+  <p>
+    Закон применяется для оценки состояния экономики в реальном времени. С помощью него можно отследить циклы делового рынка.
+    Также часто данный закон используется ЦБ для перевода наблюдаемой безработицы в оценку разрыва выпуска.
+    Модель DSGE, которая является одной из основных моделей современной макроэкономики, также основана на Оукене.
+  </p>
+
+  <p>
+    При этом на данном законе нельзя полностью основывать анализ, так как в формуле присутствует коэффициент, который является
+    очень вариативным и зависит от каждой конкретной ситуации. Например: последнее время мы видим сокращение рабочих мест,
+    но при этом не видим резкого разрыва между потенциальным и реальным ВВП.
+    Так происходит из-за того, что людей не просто увольняют, а заменяют на технологии, которые кратно превосходят ручной труд по КПД.
+    Из-за этого виден рост безработицы, при этом отсутствие разрыва.
+  </p>
+
+  <a href="theory.html" class="page-back">← Назад к теории</a>
+
+</main>
+<script src="site-session.js"></script>
+</body>
+</html>

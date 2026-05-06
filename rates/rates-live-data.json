@@ -1,0 +1,77 @@
+{
+  "updatedAt": "6 мая 2026 г. в 09:32",
+  "items": {
+    "fed": {
+      "value": "3.75%",
+      "change": "0.00 п.п.",
+      "asOf": "6 мая 2026 г. в 09:32",
+      "state": "neutral"
+    },
+    "ecb": {
+      "value": "2.15%",
+      "change": "0.00 п.п.",
+      "asOf": "6 мая 2026 г. в 09:32",
+      "state": "neutral"
+    },
+    "boe": {
+      "value": "3.75%",
+      "change": "0.00 п.п.",
+      "asOf": "6 мая 2026 г. в 09:32",
+      "state": "neutral"
+    },
+    "boj": {
+      "value": "0.75%",
+      "change": "0.00 п.п.",
+      "asOf": "6 мая 2026 г. в 09:32",
+      "state": "neutral"
+    },
+    "us02y": {
+      "value": "3.91%",
+      "change": "-0.03 п.п.",
+      "asOf": "6 мая 2026 г. в 09:32",
+      "state": "down"
+    },
+    "us10y": {
+      "value": "4.39%",
+      "change": "-0.04 п.п.",
+      "asOf": "6 мая 2026 г. в 09:32",
+      "state": "down"
+    },
+    "us30y": {
+      "value": "4.96%",
+      "change": "-0.04 п.п.",
+      "asOf": "6 мая 2026 г. в 09:32",
+      "state": "down"
+    },
+    "yieldcurve": {
+      "value": "47 б.п.",
+      "change": "-1 б.п.",
+      "asOf": "6 мая 2026 г. в 09:32",
+      "state": "down"
+    },
+    "dxy": {
+      "value": "98.09",
+      "change": "-0.39",
+      "asOf": "6 мая 2026 г. в 09:32",
+      "state": "down"
+    },
+    "realyield": {
+      "value": "—",
+      "change": "Без изменений",
+      "asOf": "6 мая 2026 г. в 09:32",
+      "state": "neutral"
+    },
+    "dollarfunding": {
+      "value": "—",
+      "change": "Без изменений",
+      "asOf": "6 мая 2026 г. в 09:32",
+      "state": "neutral"
+    },
+    "move": {
+      "value": "76.78",
+      "change": "-1.09",
+      "asOf": "6 мая 2026 г. в 09:32",
+      "state": "down"
+    }
+  }
+}
