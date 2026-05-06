@@ -3,9 +3,13 @@ const fs = require("fs");
 const path = require("path");
 
 const PORT = process.env.PORT || 3000;
-const SERVER_VERSION = "RENDER_NODE_DYNAMIC_V1";
+const SERVER_VERSION = "RENDER_NODE_DYNAMIC_INVESTING_CALENDAR_TEST_NO_DEPS_V1";
 
 const rootDir = __dirname;
+
+/* =========================
+   COMMODITIES CONFIG
+========================= */
 
 const commodities = [
   { symbol: "BZ=F", name: "Brent Oil" },
@@ -15,6 +19,59 @@ const commodities = [
   { symbol: "HG=F", name: "Copper" },
   { symbol: "NG=F", name: "Natural Gas" }
 ];
+
+/* =========================
+   INVESTING CALENDAR CONFIG
+========================= */
+
+const INVESTING_BASE_URL = "https://www.investing.com";
+const INVESTING_CALENDAR_PAGE_URL = `${INVESTING_BASE_URL}/economic-calendar/`;
+const INVESTING_CALENDAR_API_URL =
+  `${INVESTING_BASE_URL}/economic-calendar/Service/getCalendarFilteredData`;
+
+const INVESTING_CALENDAR_CACHE_TTL_MS = 30 * 60 * 1000;
+
+const investingCalendarCache = {
+  createdAt: 0,
+  payload: null
+};
+
+const investingCookieCache = {
+  expiresAt: 0,
+  value: ""
+};
+
+/*
+  Коды стран Investing.com:
+  5  - United States
+  72 - Euro Zone
+  4  - United Kingdom
+  35 - Japan
+  6  - Canada
+  25 - Australia
+  43 - New Zealand
+  12 - Switzerland
+  17 - Germany
+  22 - France
+  37 - China
+*/
+const investingCountryIds = [
+  "5",
+  "72",
+  "4",
+  "35",
+  "6",
+  "25",
+  "43",
+  "12",
+  "17",
+  "22",
+  "37"
+];
+
+/* =========================
+   MIME TYPES
+========================= */
 
 const mimeTypes = {
   ".html": "text/html; charset=utf-8",
@@ -31,6 +88,10 @@ const mimeTypes = {
   ".txt": "text/plain; charset=utf-8",
   ".pdf": "application/pdf"
 };
+
+/* =========================
+   RESPONSE HELPERS
+========================= */
 
 function sendJson(res, statusCode, data) {
   res.writeHead(statusCode, {
@@ -50,6 +111,566 @@ function sendText(res, statusCode, text) {
 
   res.end(text);
 }
+
+/* =========================
+   FETCH HELPERS
+========================= */
+
+async function fetchJsonWithTimeout(url, timeoutMs = 12000) {
+  const controller = new AbortController();
+
+  const timeoutId = setTimeout(() => {
+    controller.abort();
+  }, timeoutMs);
+
+  try {
+    const response = await fetch(url, {
+      signal: controller.signal,
+      headers: {
+        "User-Agent": "Mozilla/5.0 TradingNotes/1.0",
+        "Accept": "application/json,text/plain,*/*"
+      }
+    });
+
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+
+    return await response.json();
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+async function fetchTextResponseWithTimeout(url, options = {}, timeoutMs = 15000) {
+  const controller = new AbortController();
+
+  const timeoutId = setTimeout(() => {
+    controller.abort();
+  }, timeoutMs);
+
+  try {
+    const response = await fetch(url, {
+      ...options,
+      signal: controller.signal
+    });
+
+    const text = await response.text();
+
+    return {
+      ok: response.ok,
+      status: response.status,
+      statusText: response.statusText,
+      contentType: response.headers.get("content-type") || "",
+      headers: response.headers,
+      text
+    };
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+function getInvestingBrowserHeaders(extraHeaders = {}) {
+  return {
+    "User-Agent":
+      "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+    "Accept":
+      "text/html,application/xhtml+xml,application/xml;q=0.9,application/json,text/javascript,*/*;q=0.8",
+    "Accept-Language": "en-US,en;q=0.9,ru;q=0.8",
+    "Connection": "keep-alive",
+    ...extraHeaders
+  };
+}
+
+function extractCookieHeader(headers) {
+  if (!headers) {
+    return "";
+  }
+
+  if (typeof headers.getSetCookie === "function") {
+    const cookies = headers.getSetCookie();
+
+    if (Array.isArray(cookies) && cookies.length > 0) {
+      return cookies
+        .map((cookie) => cookie.split(";")[0])
+        .filter(Boolean)
+        .join("; ");
+    }
+  }
+
+  const singleCookieHeader = headers.get("set-cookie");
+
+  if (!singleCookieHeader) {
+    return "";
+  }
+
+  return singleCookieHeader
+    .split(",")
+    .map((cookie) => cookie.split(";")[0])
+    .filter(Boolean)
+    .join("; ");
+}
+
+async function getInvestingCookies() {
+  const now = Date.now();
+
+  if (investingCookieCache.value && investingCookieCache.expiresAt > now) {
+    return investingCookieCache.value;
+  }
+
+  try {
+    const response = await fetchTextResponseWithTimeout(
+      INVESTING_CALENDAR_PAGE_URL,
+      {
+        method: "GET",
+        headers: getInvestingBrowserHeaders({
+          "Referer": INVESTING_BASE_URL
+        })
+      },
+      15000
+    );
+
+    const cookieHeader = extractCookieHeader(response.headers);
+
+    investingCookieCache.value = cookieHeader;
+    investingCookieCache.expiresAt = now + 6 * 60 * 60 * 1000;
+
+    return cookieHeader;
+  } catch (error) {
+    return "";
+  }
+}
+
+/* =========================
+   DATE HELPERS
+========================= */
+
+function addDays(date, days) {
+  const copy = new Date(date.getTime());
+  copy.setUTCDate(copy.getUTCDate() + days);
+  return copy;
+}
+
+function formatDateYYYYMMDD(date) {
+  return date.toISOString().slice(0, 10);
+}
+
+/* =========================
+   BASIC HTML PARSER HELPERS
+========================= */
+
+function decodeHtmlEntities(value) {
+  if (value === undefined || value === null) {
+    return "";
+  }
+
+  return String(value)
+    .replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&quot;/g, "\"")
+    .replace(/&#39;/g, "'")
+    .replace(/&apos;/g, "'")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&#(\d+);/g, function (_, code) {
+      return String.fromCharCode(Number(code));
+    })
+    .replace(/&#x([0-9a-fA-F]+);/g, function (_, code) {
+      return String.fromCharCode(parseInt(code, 16));
+    });
+}
+
+function stripTags(html) {
+  return decodeHtmlEntities(
+    String(html || "")
+      .replace(/<script[\s\S]*?<\/script>/gi, " ")
+      .replace(/<style[\s\S]*?<\/style>/gi, " ")
+      .replace(/<[^>]*>/g, " ")
+  )
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function normalizeText(value) {
+  if (value === undefined || value === null) {
+    return null;
+  }
+
+  const text = String(value)
+    .replace(/\u00a0/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  return text || null;
+}
+
+function extractAttr(html, attrName) {
+  const pattern = new RegExp(`${attrName}\\s*=\\s*["']([^"']*)["']`, "i");
+  const match = String(html || "").match(pattern);
+
+  return match ? decodeHtmlEntities(match[1]).trim() : null;
+}
+
+function extractCellByClass(rowHtml, className) {
+  const pattern = new RegExp(
+    `<td\\b(?=[^>]*class=["'][^"']*\\b${className}\\b[^"']*["'])[^>]*>([\\s\\S]*?)<\\/td>`,
+    "i"
+  );
+
+  const match = String(rowHtml || "").match(pattern);
+
+  return match ? match[1] : "";
+}
+
+function extractCountryFromFlagCell(flagCellHtml) {
+  const titleMatch = String(flagCellHtml || "").match(
+    /<span\b[^>]*title=["']([^"']+)["'][^>]*>/i
+  );
+
+  if (titleMatch) {
+    return normalizeText(decodeHtmlEntities(titleMatch[1]));
+  }
+
+  return normalizeText(stripTags(flagCellHtml));
+}
+
+function parseInvestingImportance(rowHtml) {
+  const sentimentCell = extractCellByClass(rowHtml, "sentiment");
+  const title = extractAttr(sentimentCell, "title") || "";
+  const fullIconCount = (sentimentCell.match(/grayFullBullishIcon/gi) || []).length;
+
+  let level = 1;
+
+  if (fullIconCount >= 3) {
+    level = 3;
+  } else if (fullIconCount === 2) {
+    level = 2;
+  } else if (/high/i.test(title) || /высок/i.test(title)) {
+    level = 3;
+  } else if (/medium/i.test(title) || /сред/i.test(title)) {
+    level = 2;
+  }
+
+  const label =
+    level >= 3
+      ? "Высокая"
+      : level === 2
+        ? "Средняя"
+        : "Низкая";
+
+  return {
+    level,
+    label
+  };
+}
+
+function extractInvestingCalendarHtml(responseText) {
+  try {
+    const json = JSON.parse(responseText);
+
+    if (json && typeof json.data === "string") {
+      return {
+        html: json.data,
+        responseType: "json",
+        jsonKeys: Object.keys(json)
+      };
+    }
+
+    if (json && typeof json.html === "string") {
+      return {
+        html: json.html,
+        responseType: "json",
+        jsonKeys: Object.keys(json)
+      };
+    }
+
+    return {
+      html: responseText,
+      responseType: "json-without-html",
+      jsonKeys: Object.keys(json || {})
+    };
+  } catch (error) {
+    return {
+      html: responseText,
+      responseType: "html",
+      jsonKeys: []
+    };
+  }
+}
+
+function detectInvestingBlock(html) {
+  const lower = String(html || "").toLowerCase();
+
+  if (lower.includes("captcha")) {
+    return "captcha";
+  }
+
+  if (lower.includes("access denied")) {
+    return "access denied";
+  }
+
+  if (lower.includes("blocked")) {
+    return "blocked";
+  }
+
+  if (lower.includes("cloudflare")) {
+    return "cloudflare";
+  }
+
+  return null;
+}
+
+function parseInvestingCalendarRows(html) {
+  const events = [];
+  const sourceHtml = String(html || "");
+
+  const rowMatches = sourceHtml.match(
+    /<tr\b(?=[^>]*(?:js-event-item|eventRowId_))[^>]*>[\s\S]*?<\/tr>/gi
+  );
+
+  if (!rowMatches) {
+    return events;
+  }
+
+  rowMatches.forEach((rowHtml, index) => {
+    const rowId = extractAttr(rowHtml, "id") || `event-${index + 1}`;
+
+    const dateTime =
+      extractAttr(rowHtml, "data-event-datetime") ||
+      extractAttr(rowHtml, "data-event-datetime-local");
+
+    const timeCell = extractCellByClass(rowHtml, "time");
+    const flagCell = extractCellByClass(rowHtml, "flagCur");
+    const eventCell = extractCellByClass(rowHtml, "event");
+    const actualCell = extractCellByClass(rowHtml, "act");
+    const forecastCell = extractCellByClass(rowHtml, "fore");
+    const previousCell = extractCellByClass(rowHtml, "prev");
+
+    const time = normalizeText(stripTags(timeCell));
+    const country = extractCountryFromFlagCell(flagCell);
+    const event = normalizeText(stripTags(eventCell));
+    const actual = normalizeText(stripTags(actualCell));
+    const forecast = normalizeText(stripTags(forecastCell));
+    const previous = normalizeText(stripTags(previousCell));
+
+    const importance = parseInvestingImportance(rowHtml);
+
+    if (!event) {
+      return;
+    }
+
+    events.push({
+      id: rowId,
+      dateTime,
+      time,
+      country,
+      event,
+      actual,
+      forecast,
+      previous,
+      importance: importance.label,
+      importanceLevel: importance.level
+    });
+  });
+
+  return events;
+}
+
+/* =========================
+   INVESTING CALENDAR FETCH
+========================= */
+
+function buildInvestingCalendarBody() {
+  const today = new Date();
+
+  const dateFrom = formatDateYYYYMMDD(addDays(today, -3));
+  const dateTo = formatDateYYYYMMDD(addDays(today, 180));
+
+  const params = new URLSearchParams();
+
+  params.append("dateFrom", dateFrom);
+  params.append("dateTo", dateTo);
+  params.append("timeZone", "55");
+  params.append("timeFilter", "timeRemain");
+  params.append("currentTab", "custom");
+  params.append("limit_from", "0");
+  params.append("submitFilters", "1");
+
+  investingCountryIds.forEach((countryId) => {
+    params.append("country[]", countryId);
+  });
+
+  params.append("importance[]", "1");
+  params.append("importance[]", "2");
+  params.append("importance[]", "3");
+
+  return {
+    body: params.toString(),
+    dateFrom,
+    dateTo
+  };
+}
+
+async function fetchInvestingCalendarData() {
+  const request = buildInvestingCalendarBody();
+  const cookies = await getInvestingCookies();
+
+  const headers = getInvestingBrowserHeaders({
+    "Accept": "application/json, text/javascript, */*; q=0.01",
+    "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+    "Origin": INVESTING_BASE_URL,
+    "Referer": INVESTING_CALENDAR_PAGE_URL,
+    "X-Requested-With": "XMLHttpRequest"
+  });
+
+  if (cookies) {
+    headers.Cookie = cookies;
+  }
+
+  const response = await fetchTextResponseWithTimeout(
+    INVESTING_CALENDAR_API_URL,
+    {
+      method: "POST",
+      headers,
+      body: request.body
+    },
+    20000
+  );
+
+  const extracted = extractInvestingCalendarHtml(response.text);
+  const blockReason = detectInvestingBlock(extracted.html);
+
+  if (!response.ok) {
+    throw new Error(
+      `Investing.com вернул HTTP ${response.status}. Фрагмент ответа: ${response.text.slice(0, 220)}`
+    );
+  }
+
+  if (blockReason) {
+    throw new Error(
+      `Investing.com заблокировал запрос. Причина: ${blockReason}. Фрагмент ответа: ${response.text.slice(0, 220)}`
+    );
+  }
+
+  const events = parseInvestingCalendarRows(extracted.html);
+
+  return {
+    ok: true,
+    serverVersion: SERVER_VERSION,
+    source: "Investing.com",
+    updatedAt: new Date().toISOString(),
+    request: {
+      dateFrom: request.dateFrom,
+      dateTo: request.dateTo,
+      countryIds: investingCountryIds,
+      endpoint: "/economic-calendar/Service/getCalendarFilteredData"
+    },
+    responseMeta: {
+      status: response.status,
+      contentType: response.contentType,
+      responseType: extracted.responseType,
+      jsonKeys: extracted.jsonKeys,
+      htmlLength: extracted.html.length
+    },
+    rowsFound: events.length,
+    items: events
+  };
+}
+
+async function getInvestingCalendarDataWithCache(forceRefresh = false) {
+  const now = Date.now();
+
+  if (
+    !forceRefresh &&
+    investingCalendarCache.payload &&
+    now - investingCalendarCache.createdAt < INVESTING_CALENDAR_CACHE_TTL_MS
+  ) {
+    return {
+      ...investingCalendarCache.payload,
+      cache: {
+        status: "hit",
+        ageSeconds: Math.round((now - investingCalendarCache.createdAt) / 1000)
+      }
+    };
+  }
+
+  const freshPayload = await fetchInvestingCalendarData();
+
+  investingCalendarCache.payload = freshPayload;
+  investingCalendarCache.createdAt = now;
+
+  return {
+    ...freshPayload,
+    cache: {
+      status: "miss",
+      ageSeconds: 0
+    }
+  };
+}
+
+async function handleInvestingCalendarTest(req, res) {
+  try {
+    const data = await getInvestingCalendarDataWithCache(true);
+
+    sendJson(res, 200, {
+      ok: true,
+      serverVersion: SERVER_VERSION,
+      source: data.source,
+      updatedAt: data.updatedAt,
+      request: data.request,
+      responseMeta: data.responseMeta,
+      rowsFound: data.rowsFound,
+      sample: data.items.slice(0, 15)
+    });
+  } catch (error) {
+    sendJson(res, 502, {
+      ok: false,
+      serverVersion: SERVER_VERSION,
+      source: "Investing.com",
+      updatedAt: new Date().toISOString(),
+      message: "Не удалось получить календарь Investing.com",
+      error: error.message,
+      nextStep:
+        "Если здесь 403, captcha, cloudflare или access denied — Investing.com блокирует запрос с сервера."
+    });
+  }
+}
+
+async function handleInvestingCalendarLive(req, res) {
+  try {
+    const data = await getInvestingCalendarDataWithCache(false);
+    sendJson(res, 200, data);
+  } catch (error) {
+    if (investingCalendarCache.payload) {
+      sendJson(res, 200, {
+        ...investingCalendarCache.payload,
+        ok: true,
+        warning: "Источник не ответил, отдан старый кэш",
+        cache: {
+          status: "stale",
+          ageSeconds: Math.round(
+            (Date.now() - investingCalendarCache.createdAt) / 1000
+          )
+        }
+      });
+
+      return;
+    }
+
+    sendJson(res, 502, {
+      ok: false,
+      serverVersion: SERVER_VERSION,
+      source: "Investing.com",
+      updatedAt: new Date().toISOString(),
+      message: "Не удалось получить live-календарь Investing.com",
+      error: error.message
+    });
+  }
+}
+
+/* =========================
+   COMMODITIES HELPERS
+========================= */
 
 function getLastValidNumber(array) {
   if (!Array.isArray(array)) {
@@ -87,32 +708,6 @@ function getPreviousValidNumber(array) {
   }
 
   return null;
-}
-
-async function fetchJsonWithTimeout(url, timeoutMs = 12000) {
-  const controller = new AbortController();
-
-  const timeoutId = setTimeout(() => {
-    controller.abort();
-  }, timeoutMs);
-
-  try {
-    const response = await fetch(url, {
-      signal: controller.signal,
-      headers: {
-        "User-Agent": "Mozilla/5.0 TradingNotes/1.0",
-        "Accept": "application/json,text/plain,*/*"
-      }
-    });
-
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}`);
-    }
-
-    return await response.json();
-  } finally {
-    clearTimeout(timeoutId);
-  }
 }
 
 async function fetchYahooCommodity(item) {
@@ -248,6 +843,10 @@ async function handleCommodities(req, res) {
   }
 }
 
+/* =========================
+   HEALTH / HEARTBEAT
+========================= */
+
 function handleHealth(req, res) {
   sendJson(res, 200, {
     ok: true,
@@ -258,10 +857,6 @@ function handleHealth(req, res) {
 }
 
 function handleHeartbeat(req, res) {
-  /*
-    Этот endpoint оставлен только для совместимости со старым site-session.js.
-    На Render сервер НЕ должен автоматически выключаться.
-  */
   sendJson(res, 200, {
     ok: true,
     serverVersion: SERVER_VERSION,
@@ -269,6 +864,10 @@ function handleHeartbeat(req, res) {
     time: new Date().toISOString()
   });
 }
+
+/* =========================
+   STATIC FILE SERVER
+========================= */
 
 function resolveStaticPath(requestedPath) {
   if (requestedPath === "/") {
@@ -367,6 +966,10 @@ function serveStaticFile(req, res) {
   });
 }
 
+/* =========================
+   SERVER ROUTER
+========================= */
+
 const server = http.createServer((req, res) => {
   const url = req.url.split("?")[0];
 
@@ -395,6 +998,16 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  if (url.startsWith("/api/investing-calendar-test")) {
+    handleInvestingCalendarTest(req, res);
+    return;
+  }
+
+  if (url.startsWith("/api/investing-calendar-live")) {
+    handleInvestingCalendarLive(req, res);
+    return;
+  }
+
   serveStaticFile(req, res);
 });
 
@@ -404,6 +1017,8 @@ server.listen(PORT, () => {
   console.log(`Server is running on port: ${PORT}`);
   console.log(`Health check: /api/health`);
   console.log(`Commodities API: /api/commodities`);
+  console.log(`Investing Calendar Test API: /api/investing-calendar-test`);
+  console.log(`Investing Calendar Live API: /api/investing-calendar-live`);
   console.log("Auto-shutdown: disabled for Render");
   console.log("======================================");
 });
