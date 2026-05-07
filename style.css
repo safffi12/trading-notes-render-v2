@@ -49,6 +49,8 @@
   --home-hero-title: 44px;
   --home-tile-title: 32px;
   --home-tile-lead: 21px;
+
+  --article-back-gap: 72px;
 }
 
 /* =========================
@@ -129,6 +131,7 @@ select {
 
 .nav-links {
   margin-left: auto;
+
   display: flex;
   align-items: center;
   gap: 10px;
@@ -346,6 +349,8 @@ select {
 
 .back-pill,
 .back-link,
+.back-button,
+.back-home,
 .back-home-link,
 .page-back,
 .page-back-link,
@@ -380,6 +385,8 @@ select {
 
 .back-pill:hover,
 .back-link:hover,
+.back-button:hover,
+.back-home:hover,
 .back-home-link:hover,
 .page-back:hover,
 .page-back-link:hover,
@@ -392,6 +399,8 @@ select {
 
 .back-pill:active,
 .back-link:active,
+.back-button:active,
+.back-home:active,
 .back-home-link:active,
 .page-back:active,
 .page-back-link:active,
@@ -408,6 +417,65 @@ select {
 
 .rates-detail-back {
   margin-bottom: 18px;
+}
+
+/* =========================
+   ARTICLE SECTION BACK BUTTON FIX
+========================= */
+
+.section-grid + .back-pill,
+.section-grid + .back-link,
+.section-grid + .back-button,
+.section-grid + .back-home,
+.section-grid + .back-home-link,
+.section-grid + .page-back,
+.section-grid + .page-back-link,
+.section-grid + .article-back-link,
+.article-list + .back-pill,
+.article-list + .back-link,
+.article-list + .back-button,
+.article-list + .back-home,
+.article-list + .back-home-link,
+.article-list + .page-back,
+.article-list + .page-back-link,
+.article-list + .article-back-link,
+.section + .back-pill,
+.section + .back-link,
+.section + .back-button,
+.section + .back-home,
+.section + .back-home-link,
+.section + .page-back,
+.section + .page-back-link,
+.section + .article-back-link {
+  margin-top: var(--article-back-gap);
+  margin-bottom: 0;
+}
+
+.section-grid > .back-pill,
+.section-grid > .back-link,
+.section-grid > .back-button,
+.section-grid > .back-home,
+.section-grid > .back-home-link,
+.section-grid > .page-back,
+.section-grid > .page-back-link,
+.section-grid > .article-back-link {
+  grid-column: 1 / -1;
+  justify-self: start;
+  margin-top: calc(var(--article-back-gap) - 18px);
+  margin-bottom: 0;
+}
+
+.article-list > .back-pill,
+.article-list > .back-link,
+.article-list > .back-button,
+.article-list > .back-home,
+.article-list > .back-home-link,
+.article-list > .page-back,
+.article-list > .page-back-link,
+.article-list > .article-back-link {
+  justify-self: start;
+  margin-top: calc(var(--article-back-gap) - 16px);
+  margin-bottom: 0;
 }
 
 /* =========================
@@ -2628,6 +2696,10 @@ footer {
 }
 
 @media (max-width: 640px) {
+  :root {
+    --article-back-gap: 56px;
+  }
+
   .data-toolbar {
     display: block;
 
