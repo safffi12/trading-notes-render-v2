@@ -3,9 +3,9 @@ const fs = require("fs");
 const path = require("path");
 
 const PORT = process.env.PORT || 3000;
-const SERVER_VERSION = "RENDER_NODE_DYNAMIC_INVESTING_CALENDAR_TEST_NO_DEPS_V1";
+const SERVER_VERSION = "RENDER_NODE_DYNAMIC_RATES_DAILY_CACHE_V1";
 
-const rootDir = __dirname;
+const rootDir = path.resolve(__dirname);
 
 /* =========================
    COMMODITIES CONFIG
@@ -19,6 +19,30 @@ const commodities = [
   { symbol: "HG=F", name: "Copper" },
   { symbol: "NG=F", name: "Natural Gas" }
 ];
+
+/* =========================
+   RATES CONFIG
+========================= */
+
+const RATES_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+const RATES_FALLBACK_FILE = path.join(rootDir, "rates", "rates-live-data.json");
+
+const ratesCache = {
+  createdAt: 0,
+  payload: null
+};
+
+const FRED_SERIES = {
+  fedUpper: "DFEDTARU",
+  fedLower: "DFEDTARL",
+  ecb: "ECBDFR",
+  us02y: "DGS2",
+  us10y: "DGS10",
+  us30y: "DGS30",
+  realyield: "DFII10",
+  dollarfunding: "SOFR",
+  bojProxy: "IRSTCI01JPM156N"
+};
 
 /* =========================
    INVESTING CALENDAR CONFIG
@@ -41,20 +65,6 @@ const investingCookieCache = {
   value: ""
 };
 
-/*
-  Коды стран Investing.com:
-  5  - United States
-  72 - Euro Zone
-  4  - United Kingdom
-  35 - Japan
-  6  - Canada
-  25 - Australia
-  43 - New Zealand
-  12 - Switzerland
-  17 - Germany
-  22 - France
-  37 - China
-*/
 const investingCountryIds = [
   "5",
   "72",
@@ -170,7 +180,7 @@ async function fetchTextResponseWithTimeout(url, options = {}, timeoutMs = 15000
   }
 }
 
-function getInvestingBrowserHeaders(extraHeaders = {}) {
+function getBrowserHeaders(extraHeaders = {}) {
   return {
     "User-Agent":
       "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
@@ -180,65 +190,6 @@ function getInvestingBrowserHeaders(extraHeaders = {}) {
     "Connection": "keep-alive",
     ...extraHeaders
   };
-}
-
-function extractCookieHeader(headers) {
-  if (!headers) {
-    return "";
-  }
-
-  if (typeof headers.getSetCookie === "function") {
-    const cookies = headers.getSetCookie();
-
-    if (Array.isArray(cookies) && cookies.length > 0) {
-      return cookies
-        .map((cookie) => cookie.split(";")[0])
-        .filter(Boolean)
-        .join("; ");
-    }
-  }
-
-  const singleCookieHeader = headers.get("set-cookie");
-
-  if (!singleCookieHeader) {
-    return "";
-  }
-
-  return singleCookieHeader
-    .split(",")
-    .map((cookie) => cookie.split(";")[0])
-    .filter(Boolean)
-    .join("; ");
-}
-
-async function getInvestingCookies() {
-  const now = Date.now();
-
-  if (investingCookieCache.value && investingCookieCache.expiresAt > now) {
-    return investingCookieCache.value;
-  }
-
-  try {
-    const response = await fetchTextResponseWithTimeout(
-      INVESTING_CALENDAR_PAGE_URL,
-      {
-        method: "GET",
-        headers: getInvestingBrowserHeaders({
-          "Referer": INVESTING_BASE_URL
-        })
-      },
-      15000
-    );
-
-    const cookieHeader = extractCookieHeader(response.headers);
-
-    investingCookieCache.value = cookieHeader;
-    investingCookieCache.expiresAt = now + 6 * 60 * 60 * 1000;
-
-    return cookieHeader;
-  } catch (error) {
-    return "";
-  }
 }
 
 /* =========================
@@ -255,8 +206,19 @@ function formatDateYYYYMMDD(date) {
   return date.toISOString().slice(0, 10);
 }
 
+function formatHumanDateTime(date = new Date()) {
+  return new Intl.DateTimeFormat("ru-RU", {
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    timeZone: "Europe/Paris"
+  }).format(date);
+}
+
 /* =========================
-   BASIC HTML PARSER HELPERS
+   BASIC PARSERS
 ========================= */
 
 function decodeHtmlEntities(value) {
@@ -304,6 +266,82 @@ function normalizeText(value) {
   return text || null;
 }
 
+function parseCsvLine(line) {
+  const result = [];
+  let current = "";
+  let insideQuotes = false;
+
+  for (let i = 0; i < line.length; i += 1) {
+    const char = line[i];
+    const nextChar = line[i + 1];
+
+    if (char === "\"" && insideQuotes && nextChar === "\"") {
+      current += "\"";
+      i += 1;
+      continue;
+    }
+
+    if (char === "\"") {
+      insideQuotes = !insideQuotes;
+      continue;
+    }
+
+    if (char === "," && !insideQuotes) {
+      result.push(current.trim());
+      current = "";
+      continue;
+    }
+
+    current += char;
+  }
+
+  result.push(current.trim());
+  return result;
+}
+
+function parseCsvRows(text) {
+  const lines = String(text || "")
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  if (lines.length < 2) {
+    return [];
+  }
+
+  const headers = parseCsvLine(lines[0]);
+
+  return lines.slice(1).map((line) => {
+    const values = parseCsvLine(line);
+    const row = {};
+
+    headers.forEach((header, index) => {
+      row[header] = values[index] === undefined ? "" : values[index];
+    });
+
+    return row;
+  });
+}
+
+function toFiniteNumber(value) {
+  if (value === undefined || value === null) {
+    return null;
+  }
+
+  const normalized = String(value)
+    .replace("%", "")
+    .replace(/\s+/g, "")
+    .replace(",", ".")
+    .trim();
+
+  if (!normalized || normalized === "." || normalized === "—" || normalized === "-") {
+    return null;
+  }
+
+  const number = Number(normalized);
+  return Number.isFinite(number) ? number : null;
+}
+
 function extractAttr(html, attrName) {
   const pattern = new RegExp(`${attrName}\\s*=\\s*["']([^"']*)["']`, "i");
   const match = String(html || "").match(pattern);
@@ -320,6 +358,628 @@ function extractCellByClass(rowHtml, className) {
   const match = String(rowHtml || "").match(pattern);
 
   return match ? match[1] : "";
+}
+
+/* =========================
+   RATES HELPERS
+========================= */
+
+function formatPercent(value, decimals = 2) {
+  const number = toFiniteNumber(value);
+
+  if (number === null) {
+    return "—";
+  }
+
+  return `${number.toFixed(decimals)}%`;
+}
+
+function formatPlainNumber(value, decimals = 2) {
+  const number = toFiniteNumber(value);
+
+  if (number === null) {
+    return "—";
+  }
+
+  return number.toFixed(decimals);
+}
+
+function formatPpChange(value, decimals = 2) {
+  const number = toFiniteNumber(value);
+
+  if (number === null) {
+    return "Без изменений";
+  }
+
+  if (Math.abs(number) < 0.000001) {
+    return "0.00 п.п.";
+  }
+
+  const sign = number > 0 ? "+" : "-";
+  return `${sign}${Math.abs(number).toFixed(decimals)} п.п.`;
+}
+
+function formatBpChange(value) {
+  const number = toFiniteNumber(value);
+
+  if (number === null) {
+    return "Без изменений";
+  }
+
+  const rounded = Math.round(number);
+
+  if (rounded === 0) {
+    return "0 б.п.";
+  }
+
+  const sign = rounded > 0 ? "+" : "-";
+  return `${sign}${Math.abs(rounded)} б.п.`;
+}
+
+function getStateFromChange(value) {
+  const number = toFiniteNumber(value);
+
+  if (number === null || Math.abs(number) < 0.000001) {
+    return "neutral";
+  }
+
+  return number > 0 ? "up" : "down";
+}
+
+function getLatestAndPreviousObservations(rows, valueKey) {
+  const valid = rows
+    .map((row) => {
+      const value = toFiniteNumber(row[valueKey]);
+      const date = row.observation_date || row.DATE || row.Date || row.date || null;
+
+      return {
+        date,
+        value
+      };
+    })
+    .filter((row) => row.date && row.value !== null);
+
+  if (valid.length === 0) {
+    throw new Error(`Нет валидных наблюдений для ${valueKey}`);
+  }
+
+  return {
+    latest: valid[valid.length - 1],
+    previous: valid.length > 1 ? valid[valid.length - 2] : null
+  };
+}
+
+async function fetchFredSeries(seriesId) {
+  const url = `https://fred.stlouisfed.org/graph/fredgraph.csv?id=${encodeURIComponent(seriesId)}`;
+
+  const response = await fetchTextResponseWithTimeout(
+    url,
+    {
+      method: "GET",
+      headers: {
+        "User-Agent": "Mozilla/5.0 TradingNotes/1.0",
+        "Accept": "text/csv,text/plain,*/*"
+      }
+    },
+    15000
+  );
+
+  if (!response.ok) {
+    throw new Error(`FRED ${seriesId}: HTTP ${response.status}`);
+  }
+
+  const rows = parseCsvRows(response.text);
+
+  if (rows.length === 0) {
+    throw new Error(`FRED ${seriesId}: пустой CSV`);
+  }
+
+  return getLatestAndPreviousObservations(rows, seriesId);
+}
+
+function buildPercentRateItem(series, source, decimals = 2) {
+  const latest = series.latest;
+  const previous = series.previous;
+  const change = previous ? latest.value - previous.value : 0;
+
+  return {
+    value: formatPercent(latest.value, decimals),
+    change: formatPpChange(change, 2),
+    asOf: latest.date,
+    state: getStateFromChange(change),
+    source
+  };
+}
+
+function buildFedItem(lowerSeries, upperSeries) {
+  const lower = lowerSeries.latest.value;
+  const upper = upperSeries.latest.value;
+  const previousUpper = upperSeries.previous ? upperSeries.previous.value : upper;
+  const change = upper - previousUpper;
+
+  const value = Math.abs(upper - lower) < 0.000001
+    ? formatPercent(upper, 2)
+    : `${lower.toFixed(2)}-${upper.toFixed(2)}%`;
+
+  return {
+    value,
+    change: formatPpChange(change, 2),
+    asOf: upperSeries.latest.date,
+    state: getStateFromChange(change),
+    source: "FRED / Federal Reserve, target range"
+  };
+}
+
+function buildYieldCurveItem(us10ySeries, us02ySeries) {
+  const latestSpread = (us10ySeries.latest.value - us02ySeries.latest.value) * 100;
+
+  let previousSpread = latestSpread;
+
+  if (us10ySeries.previous && us02ySeries.previous) {
+    previousSpread = (us10ySeries.previous.value - us02ySeries.previous.value) * 100;
+  }
+
+  const change = latestSpread - previousSpread;
+
+  return {
+    value: `${Math.round(latestSpread)} б.п.`,
+    change: formatBpChange(change),
+    asOf: us10ySeries.latest.date,
+    state: getStateFromChange(change),
+    source: "Расчет: FRED DGS10 - DGS2"
+  };
+}
+
+async function fetchBoECurrentRate() {
+  const url = "https://www.bankofengland.co.uk/boeapps/database/Bank-Rate.asp";
+
+  const response = await fetchTextResponseWithTimeout(
+    url,
+    {
+      method: "GET",
+      headers: {
+        "User-Agent": "Mozilla/5.0 TradingNotes/1.0",
+        "Accept": "text/html,*/*"
+      }
+    },
+    15000
+  );
+
+  if (!response.ok) {
+    throw new Error(`BoE Bank Rate: HTTP ${response.status}`);
+  }
+
+  const text = stripTags(response.text);
+  const currentMatch = text.match(/Current official Bank Rate\s+([0-9]+(?:\.[0-9]+)?)%/i);
+
+  if (!currentMatch) {
+    throw new Error("BoE Bank Rate: не удалось найти текущее значение");
+  }
+
+  const value = toFiniteNumber(currentMatch[1]);
+
+  if (value === null) {
+    throw new Error("BoE Bank Rate: значение не является числом");
+  }
+
+  return {
+    value: formatPercent(value, 2),
+    change: "Без изменений",
+    asOf: formatHumanDateTime(new Date()),
+    state: "neutral",
+    source: "Bank of England"
+  };
+}
+
+async function fetchStooqQuote(symbol) {
+  const url = `https://stooq.com/q/l/?s=${encodeURIComponent(symbol)}&f=sd2t2ohlcv&h&e=csv`;
+
+  const response = await fetchTextResponseWithTimeout(
+    url,
+    {
+      method: "GET",
+      headers: {
+        "User-Agent": "Mozilla/5.0 TradingNotes/1.0",
+        "Accept": "text/csv,text/plain,*/*"
+      }
+    },
+    15000
+  );
+
+  if (!response.ok) {
+    throw new Error(`Stooq ${symbol}: HTTP ${response.status}`);
+  }
+
+  const rows = parseCsvRows(response.text);
+
+  if (rows.length === 0) {
+    throw new Error(`Stooq ${symbol}: пустой CSV`);
+  }
+
+  const row = rows[0];
+  const close = toFiniteNumber(row.Close);
+  const open = toFiniteNumber(row.Open);
+
+  if (close === null) {
+    throw new Error(`Stooq ${symbol}: нет Close`);
+  }
+
+  const change = open === null ? 0 : close - open;
+
+  return {
+    value: formatPlainNumber(close, 2),
+    change: Math.abs(change) < 0.000001
+      ? "0.00"
+      : `${change > 0 ? "+" : "-"}${Math.abs(change).toFixed(2)}`,
+    asOf: row.Date || formatDateYYYYMMDD(new Date()),
+    state: getStateFromChange(change),
+    source: `Stooq ${symbol}`
+  };
+}
+
+async function fetchYahooChartQuote(symbol) {
+  const encodedSymbol = encodeURIComponent(symbol);
+  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodedSymbol}?range=5d&interval=1d`;
+
+  const json = await fetchJsonWithTimeout(url, 15000);
+  const result = json?.chart?.result?.[0];
+
+  if (!result) {
+    throw new Error(`Yahoo ${symbol}: нет chart result`);
+  }
+
+  const quote = result?.indicators?.quote?.[0] || {};
+  const closeArray = quote.close || [];
+  const timestamps = result.timestamp || [];
+
+  const valid = closeArray
+    .map((value, index) => ({
+      value,
+      timestamp: timestamps[index]
+    }))
+    .filter((item) => typeof item.value === "number" && Number.isFinite(item.value));
+
+  if (valid.length === 0) {
+    throw new Error(`Yahoo ${symbol}: нет Close`);
+  }
+
+  const latest = valid[valid.length - 1];
+  const previous = valid.length > 1 ? valid[valid.length - 2] : latest;
+  const change = latest.value - previous.value;
+  const asOfDate = latest.timestamp
+    ? new Date(latest.timestamp * 1000).toISOString().slice(0, 10)
+    : formatDateYYYYMMDD(new Date());
+
+  return {
+    value: formatPlainNumber(latest.value, 2),
+    change: Math.abs(change) < 0.000001
+      ? "0.00"
+      : `${change > 0 ? "+" : "-"}${Math.abs(change).toFixed(2)}`,
+    asOf: asOfDate,
+    state: getStateFromChange(change),
+    source: `Yahoo Finance ${symbol}`
+  };
+}
+
+function readRatesFallbackData() {
+  try {
+    const content = fs.readFileSync(RATES_FALLBACK_FILE, "utf8");
+    const parsed = JSON.parse(content);
+
+    return {
+      updatedAt: parsed.updatedAt || "Fallback JSON",
+      items: parsed.items || {}
+    };
+  } catch (error) {
+    return {
+      updatedAt: "Fallback JSON не найден",
+      items: {}
+    };
+  }
+}
+
+function applyFallbackItem(items, fallbackItems, id, error, errors) {
+  errors.push(`${id}: ${error.message}`);
+
+  if (fallbackItems[id]) {
+    items[id] = {
+      ...fallbackItems[id],
+      source: "Fallback rates-live-data.json",
+      warning: error.message
+    };
+  }
+}
+
+async function fetchRatesData() {
+  const fallback = readRatesFallbackData();
+  const fallbackItems = fallback.items || {};
+  const items = { ...fallbackItems };
+  const errors = [];
+
+  const fredRequests = Object.entries(FRED_SERIES).map(async ([key, seriesId]) => {
+    const data = await fetchFredSeries(seriesId);
+    return [key, data];
+  });
+
+  const fredSettled = await Promise.allSettled(fredRequests);
+  const fred = {};
+
+  fredSettled.forEach((result) => {
+    if (result.status === "fulfilled") {
+      const [key, data] = result.value;
+      fred[key] = data;
+    } else {
+      errors.push(`FRED: ${result.reason.message}`);
+    }
+  });
+
+  try {
+    if (!fred.fedLower || !fred.fedUpper) {
+      throw new Error("не хватает DFEDTARL или DFEDTARU");
+    }
+
+    items.fed = buildFedItem(fred.fedLower, fred.fedUpper);
+  } catch (error) {
+    applyFallbackItem(items, fallbackItems, "fed", error, errors);
+  }
+
+  try {
+    if (!fred.ecb) {
+      throw new Error("не загружен ECBDFR");
+    }
+
+    items.ecb = buildPercentRateItem(fred.ecb, "FRED / European Central Bank", 2);
+  } catch (error) {
+    applyFallbackItem(items, fallbackItems, "ecb", error, errors);
+  }
+
+  try {
+    items.boe = await fetchBoECurrentRate();
+  } catch (error) {
+    applyFallbackItem(items, fallbackItems, "boe", error, errors);
+  }
+
+  try {
+    if (!fred.bojProxy) {
+      throw new Error("не загружен IRSTCI01JPM156N");
+    }
+
+    items.boj = buildPercentRateItem(
+      fred.bojProxy,
+      "FRED / OECD, Japan overnight call money proxy",
+      2
+    );
+  } catch (error) {
+    applyFallbackItem(items, fallbackItems, "boj", error, errors);
+  }
+
+  try {
+    if (!fred.us02y) {
+      throw new Error("не загружен DGS2");
+    }
+
+    items.us02y = buildPercentRateItem(fred.us02y, "FRED / H.15 Selected Interest Rates", 2);
+  } catch (error) {
+    applyFallbackItem(items, fallbackItems, "us02y", error, errors);
+  }
+
+  try {
+    if (!fred.us10y) {
+      throw new Error("не загружен DGS10");
+    }
+
+    items.us10y = buildPercentRateItem(fred.us10y, "FRED / H.15 Selected Interest Rates", 2);
+  } catch (error) {
+    applyFallbackItem(items, fallbackItems, "us10y", error, errors);
+  }
+
+  try {
+    if (!fred.us30y) {
+      throw new Error("не загружен DGS30");
+    }
+
+    items.us30y = buildPercentRateItem(fred.us30y, "FRED / H.15 Selected Interest Rates", 2);
+  } catch (error) {
+    applyFallbackItem(items, fallbackItems, "us30y", error, errors);
+  }
+
+  try {
+    if (!fred.us10y || !fred.us02y) {
+      throw new Error("не хватает DGS10 или DGS2");
+    }
+
+    items.yieldcurve = buildYieldCurveItem(fred.us10y, fred.us02y);
+  } catch (error) {
+    applyFallbackItem(items, fallbackItems, "yieldcurve", error, errors);
+  }
+
+  try {
+    items.dxy = await fetchStooqQuote("dx.f");
+  } catch (error) {
+    applyFallbackItem(items, fallbackItems, "dxy", error, errors);
+  }
+
+  try {
+    if (!fred.realyield) {
+      throw new Error("не загружен DFII10");
+    }
+
+    items.realyield = buildPercentRateItem(fred.realyield, "FRED / H.15 TIPS real yield", 2);
+  } catch (error) {
+    applyFallbackItem(items, fallbackItems, "realyield", error, errors);
+  }
+
+  try {
+    if (!fred.dollarfunding) {
+      throw new Error("не загружен SOFR");
+    }
+
+    items.dollarfunding = buildPercentRateItem(fred.dollarfunding, "FRED / New York Fed SOFR", 2);
+  } catch (error) {
+    applyFallbackItem(items, fallbackItems, "dollarfunding", error, errors);
+  }
+
+  try {
+    items.move = await fetchYahooChartQuote("^MOVE");
+  } catch (error) {
+    applyFallbackItem(items, fallbackItems, "move", error, errors);
+  }
+
+  return {
+    ok: true,
+    serverVersion: SERVER_VERSION,
+    source: "FRED / BoE / Stooq / Yahoo Finance with local fallback",
+    updatedAt: formatHumanDateTime(new Date()),
+    updatedAtISO: new Date().toISOString(),
+    refreshInterval: "24h lazy server cache",
+    items,
+    errors
+  };
+}
+
+async function getRatesDataWithCache(forceRefresh = false) {
+  const now = Date.now();
+
+  if (
+    !forceRefresh &&
+    ratesCache.payload &&
+    now - ratesCache.createdAt < RATES_CACHE_TTL_MS
+  ) {
+    return {
+      ...ratesCache.payload,
+      cache: {
+        status: "hit",
+        ageSeconds: Math.round((now - ratesCache.createdAt) / 1000),
+        ttlSeconds: Math.round(RATES_CACHE_TTL_MS / 1000)
+      }
+    };
+  }
+
+  try {
+    const freshPayload = await fetchRatesData();
+
+    ratesCache.payload = freshPayload;
+    ratesCache.createdAt = now;
+
+    return {
+      ...freshPayload,
+      cache: {
+        status: "miss",
+        ageSeconds: 0,
+        ttlSeconds: Math.round(RATES_CACHE_TTL_MS / 1000)
+      }
+    };
+  } catch (error) {
+    if (ratesCache.payload) {
+      return {
+        ...ratesCache.payload,
+        warning: "Источники ставок не ответили, отдан серверный кэш",
+        cache: {
+          status: "stale",
+          ageSeconds: Math.round((now - ratesCache.createdAt) / 1000),
+          ttlSeconds: Math.round(RATES_CACHE_TTL_MS / 1000)
+        }
+      };
+    }
+
+    const fallback = readRatesFallbackData();
+
+    return {
+      ok: true,
+      serverVersion: SERVER_VERSION,
+      source: "Fallback rates-live-data.json",
+      updatedAt: fallback.updatedAt,
+      items: fallback.items || {},
+      warning: `Live-источники не ответили: ${error.message}`,
+      cache: {
+        status: "fallback",
+        ageSeconds: null,
+        ttlSeconds: Math.round(RATES_CACHE_TTL_MS / 1000)
+      },
+      errors: [error.message]
+    };
+  }
+}
+
+async function handleRates(req, res) {
+  try {
+    const requestUrl = new URL(req.url, `http://${req.headers.host || "localhost"}`);
+    const forceRefresh = requestUrl.searchParams.get("refresh") === "1";
+    const data = await getRatesDataWithCache(forceRefresh);
+
+    sendJson(res, 200, data);
+  } catch (error) {
+    sendJson(res, 500, {
+      ok: false,
+      serverVersion: SERVER_VERSION,
+      updatedAt: new Date().toISOString(),
+      message: "Ошибка сервера при загрузке ставок",
+      error: error.message
+    });
+  }
+}
+
+/* =========================
+   INVESTING CALENDAR HELPERS
+========================= */
+
+function extractCookieHeader(headers) {
+  if (!headers) {
+    return "";
+  }
+
+  if (typeof headers.getSetCookie === "function") {
+    const cookies = headers.getSetCookie();
+
+    if (Array.isArray(cookies) && cookies.length > 0) {
+      return cookies
+        .map((cookie) => cookie.split(";")[0])
+        .filter(Boolean)
+        .join("; ");
+    }
+  }
+
+  const singleCookieHeader = headers.get("set-cookie");
+
+  if (!singleCookieHeader) {
+    return "";
+  }
+
+  return singleCookieHeader
+    .split(",")
+    .map((cookie) => cookie.split(";")[0])
+    .filter(Boolean)
+    .join("; ");
+}
+
+async function getInvestingCookies() {
+  const now = Date.now();
+
+  if (investingCookieCache.value && investingCookieCache.expiresAt > now) {
+    return investingCookieCache.value;
+  }
+
+  try {
+    const response = await fetchTextResponseWithTimeout(
+      INVESTING_CALENDAR_PAGE_URL,
+      {
+        method: "GET",
+        headers: getBrowserHeaders({
+          "Referer": INVESTING_BASE_URL
+        })
+      },
+      15000
+    );
+
+    const cookieHeader = extractCookieHeader(response.headers);
+
+    investingCookieCache.value = cookieHeader;
+    investingCookieCache.expiresAt = now + 6 * 60 * 60 * 1000;
+
+    return cookieHeader;
+  } catch (error) {
+    return "";
+  }
 }
 
 function extractCountryFromFlagCell(flagCellHtml) {
@@ -476,10 +1136,6 @@ function parseInvestingCalendarRows(html) {
   return events;
 }
 
-/* =========================
-   INVESTING CALENDAR FETCH
-========================= */
-
 function buildInvestingCalendarBody() {
   const today = new Date();
 
@@ -515,7 +1171,7 @@ async function fetchInvestingCalendarData() {
   const request = buildInvestingCalendarBody();
   const cookies = await getInvestingCookies();
 
-  const headers = getInvestingBrowserHeaders({
+  const headers = getBrowserHeaders({
     "Accept": "application/json, text/javascript, */*; q=0.01",
     "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
     "Origin": INVESTING_BASE_URL,
@@ -877,7 +1533,7 @@ function resolveStaticPath(requestedPath) {
   const cleanPath = requestedPath.replace(/^\/+/, "");
   const directPath = path.resolve(rootDir, cleanPath);
 
-  if (!directPath.startsWith(rootDir)) {
+  if (directPath !== rootDir && !directPath.startsWith(rootDir + path.sep)) {
     return null;
   }
 
@@ -993,6 +1649,11 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  if (url.startsWith("/api/rates")) {
+    handleRates(req, res);
+    return;
+  }
+
   if (url.startsWith("/api/commodities")) {
     handleCommodities(req, res);
     return;
@@ -1016,6 +1677,8 @@ server.listen(PORT, () => {
   console.log(`Server version: ${SERVER_VERSION}`);
   console.log(`Server is running on port: ${PORT}`);
   console.log(`Health check: /api/health`);
+  console.log(`Rates API: /api/rates`);
+  console.log(`Rates API force refresh: /api/rates?refresh=1`);
   console.log(`Commodities API: /api/commodities`);
   console.log(`Investing Calendar Test API: /api/investing-calendar-test`);
   console.log(`Investing Calendar Live API: /api/investing-calendar-live`);
