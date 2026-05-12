@@ -6,7 +6,7 @@ const RATE_DETAILS = {
     title: "Fed Funds Rate",
     label: "ФРС",
     type: "Ключевая ставка США",
-    source: "Federal Reserve / TradingView",
+    source: "Federal Reserve / FRED",
     backHref: "../rates.html",
     definition: "Fed Funds Rate - базовая ставка денежного рынка США. Через нее ФРС задает стоимость краткосрочной долларовой ликвидности и управляет финансовыми условиями.",
     why: "Это главный якорь для всей долларовой кривой: краткосрочных Treasuries, ставок фондирования, кредитных условий, валютного рынка и оценки риск-активов.",
@@ -29,7 +29,7 @@ const RATE_DETAILS = {
     title: "ECB Deposit Rate",
     label: "ЕЦБ",
     type: "Ключевая ставка еврозоны",
-    source: "ECB / TradingView",
+    source: "European Central Bank / FRED",
     backHref: "../rates.html",
     definition: "Deposit Rate - ставка, под которую банки размещают избыточную ликвидность в ЕЦБ. Это главный практический ориентир денежной политики еврозоны.",
     why: "Показатель влияет на EUR/USD, европейские облигации, банковский сектор и разницу в ставках между США и еврозоной.",
@@ -52,7 +52,7 @@ const RATE_DETAILS = {
     title: "Bank Rate",
     label: "BoE",
     type: "Ключевая ставка Великобритании",
-    source: "Bank of England / TradingView",
+    source: "Bank of England",
     backHref: "../rates.html",
     definition: "Bank Rate - ключевая ставка Банка Англии, через которую задается стоимость фунтовой ликвидности.",
     why: "Ставка важна для GBP/USD, британских облигаций, ипотечного рынка и оценки инфляционного давления в Великобритании.",
@@ -75,9 +75,9 @@ const RATE_DETAILS = {
     title: "Policy Rate",
     label: "BoJ",
     type: "Ключевая ставка Японии",
-    source: "Bank of Japan / TradingView",
+    source: "FRED / OECD proxy",
     backHref: "../rates.html",
-    definition: "Policy Rate Банка Японии показывает базовую цену иены и краткосрочной ликвидности в Японии.",
+    definition: "Policy Rate Банка Японии показывает базовую цену иены и краткосрочной ликвидности в Японии. В автоматическом блоке используется близкий рыночный прокси по overnight/call money rate, потому что официальный ряд BoJ сложнее подключать напрямую.",
     why: "BoJ важен не только для JPY, но и для глобального carry trade. Дешевая иена часто используется как валюта фондирования.",
     howToRead: "Ужесточение BoJ поддерживает иену и может снижать интерес к carry trade. Мягкая политика обычно сохраняет давление на JPY.",
     watch: [
@@ -98,7 +98,7 @@ const RATE_DETAILS = {
     title: "US 2Y Yield",
     label: "2Y",
     type: "Краткий конец кривой США",
-    source: "US Treasuries / TradingView",
+    source: "FRED / H.15 Selected Interest Rates",
     backHref: "../rates.html",
     definition: "Доходность 2-летних Treasuries - рыночный индикатор ожиданий по ставке ФРС на ближайшие несколько лет.",
     why: "2Y сильнее всего реагирует на CPI, NFP, FOMC и изменение ожиданий по траектории Fed Funds Rate.",
@@ -121,7 +121,7 @@ const RATE_DETAILS = {
     title: "US 10Y Yield",
     label: "10Y",
     type: "Бенчмарк долгосрочных ставок",
-    source: "US Treasuries / TradingView",
+    source: "FRED / H.15 Selected Interest Rates",
     backHref: "../rates.html",
     definition: "Доходность 10-летних Treasuries - глобальный ориентир долгосрочной стоимости капитала.",
     why: "10Y влияет на ипотеку, корпоративные ставки, оценку акций, золото, доллар и глобальные мультипликаторы риска.",
@@ -144,7 +144,7 @@ const RATE_DETAILS = {
     title: "US 30Y Yield",
     label: "30Y",
     type: "Дальний конец кривой США",
-    source: "US Treasuries / TradingView",
+    source: "FRED / H.15 Selected Interest Rates",
     backHref: "../rates.html",
     definition: "Доходность 30-летних Treasuries отражает долгосрочную премию за срок, инфляционные риски и доверие к фискальной устойчивости США.",
     why: "30Y важна для пенсионных фондов, страховых компаний, ипотечного рынка и оценки долгосрочной долговой нагрузки.",
@@ -167,7 +167,7 @@ const RATE_DETAILS = {
     title: "US 10Y-2Y Spread",
     label: "Curve",
     type: "Кривая доходности США",
-    source: "US Treasuries / TradingView",
+    source: "Расчет: FRED DGS10 - DGS2",
     backHref: "../rates.html",
     definition: "Спред 10Y-2Y показывает разницу между долгосрочной и краткосрочной доходностью Treasuries.",
     why: "Форма кривой помогает оценивать стадию цикла: жесткость политики, рецессионные риски и ожидания будущего снижения ставки.",
@@ -190,7 +190,7 @@ const RATE_DETAILS = {
     title: "DXY",
     label: "USD",
     type: "Индекс доллара",
-    source: "TradingView",
+    source: "Stooq",
     backHref: "../rates.html",
     definition: "DXY измеряет силу доллара США против корзины основных валют.",
     why: "Доллар - центральная валюта глобальной ликвидности. Его рост часто ужесточает условия для сырья, EM-рынков и риск-активов.",
@@ -213,7 +213,7 @@ const RATE_DETAILS = {
     title: "US Real Yield",
     label: "Real",
     type: "Реальная доходность",
-    source: "FRED / TradingView",
+    source: "FRED / H.15 TIPS real yield",
     backHref: "../rates.html",
     definition: "Реальная доходность показывает номинальную доходность Treasuries за вычетом инфляционных ожиданий.",
     why: "Это один из главных индикаторов реальной стоимости денег. Он особенно важен для золота, Nasdaq и доллара.",
@@ -236,9 +236,9 @@ const RATE_DETAILS = {
     title: "Dollar Funding",
     label: "Funding",
     type: "Долларовое фондирование",
-    source: "FRED / TradingView",
+    source: "FRED / New York Fed SOFR",
     backHref: "../rates.html",
-    definition: "Dollar Funding отражает стоимость краткосрочного доступа к долларовой ликвидности.",
+    definition: "Dollar Funding отражает стоимость краткосрочного доступа к долларовой ликвидности. В этой карточке используется SOFR как основной ориентир стоимости обеспеченного overnight-фондирования в долларах.",
     why: "Когда долларовое фондирование дорожает, финансовая система может испытывать напряжение. Это важно для банков, фондов и глобального carry trade.",
     howToRead: "Рост стоимости фондирования может указывать на дефицит долларовой ликвидности. Снижение означает более спокойные условия.",
     watch: [
@@ -259,7 +259,7 @@ const RATE_DETAILS = {
     title: "MOVE Index",
     label: "MOVE",
     type: "Волатильность облигаций",
-    source: "TradingView",
+    source: "Yahoo Finance",
     backHref: "../rates.html",
     definition: "MOVE Index измеряет ожидаемую волатильность рынка US Treasuries.",
     why: "Когда рынок ставок нестабилен, инвесторы хуже оценивают стоимость капитала. Это часто снижает аппетит к риску.",
@@ -299,24 +299,35 @@ function getChangeClass(state) {
   return "rates-change-neutral";
 }
 
+async function fetchJsonNoStore(url) {
+  const response = await fetch(`${url}${url.includes("?") ? "&" : "?"}v=${Date.now()}`, {
+    cache: "no-store"
+  });
+
+  if (!response.ok) {
+    throw new Error(`${url} вернул статус ${response.status}`);
+  }
+
+  return await response.json();
+}
+
 async function loadRateLiveData() {
   try {
-    const response = await fetch(`rates-live-data.json?v=${Date.now()}`, {
-      cache: "no-store"
-    });
+    return await fetchJsonNoStore("/api/rates");
+  } catch (apiError) {
+    console.warn("Не удалось загрузить /api/rates, пробуем локальный JSON", apiError);
 
-    if (!response.ok) {
-      throw new Error(`Файл rates-live-data.json не найден. Статус: ${response.status}`);
+    try {
+      return await fetchJsonNoStore("rates-live-data.json");
+    } catch (jsonError) {
+      console.warn("Не удалось загрузить rates-live-data.json", jsonError);
+
+      return {
+        updatedAt: "Данные временно недоступны",
+        items: {},
+        errors: [apiError.message, jsonError.message]
+      };
     }
-
-    return await response.json();
-  } catch (error) {
-    console.warn("Не удалось загрузить rates-live-data.json", error);
-
-    return {
-      updatedAt: "Данные временно недоступны",
-      items: {}
-    };
   }
 }
 
@@ -324,11 +335,15 @@ function renderList(items) {
   return items.map((item) => `<li>${item}</li>`).join("");
 }
 
-function renderRateDetail(meta, live) {
+function renderRateDetail(meta, live, data) {
   const value = safeText(live.value);
   const change = safeText(live.change, "Без изменений");
   const asOf = safeText(live.asOf, "Нет времени обновления");
+  const source = safeText(live.source || meta.source, meta.source);
   const changeClass = getChangeClass(live.state);
+  const cacheStatus = data && data.cache && data.cache.status
+    ? `Режим: ${data.cache.status}`
+    : "Режим: live/fallback";
 
   rateDetailRoot.innerHTML = `
     <section class="rates-detail-hero">
@@ -343,7 +358,7 @@ function renderRateDetail(meta, live) {
 
         <div class="rates-detail-source">
           <span>Источник</span>
-          <strong>${meta.source}</strong>
+          <strong>${source}</strong>
         </div>
       </div>
 
@@ -356,6 +371,7 @@ function renderRateDetail(meta, live) {
         <div class="rates-detail-value-meta">
           <div class="rates-change ${changeClass}">${change}</div>
           <div class="rates-asof">${asOf}</div>
+          <div class="rates-asof">${cacheStatus}</div>
         </div>
       </div>
     </section>
@@ -430,7 +446,7 @@ async function initRateDetail() {
   const data = await loadRateLiveData();
   const live = (data.items || {})[currentRateId] || {};
 
-  renderRateDetail(meta, live);
+  renderRateDetail(meta, live, data);
 }
 
 initRateDetail();

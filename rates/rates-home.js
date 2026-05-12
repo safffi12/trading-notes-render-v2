@@ -152,7 +152,7 @@ const RATE_GROUPS = [
     kicker: "Dollar Conditions",
     title: "Доллар и стоимость фондирования",
     text: "Этот блок показывает силу доллара, реальные ставки и напряжение в долларовой ликвидности."
-  },
+  }
 ];
 
 function safeText(value, fallback = "—") {
@@ -175,24 +175,35 @@ function getChangeClass(state) {
   return "rates-change-neutral";
 }
 
+async function fetchJsonNoStore(url) {
+  const response = await fetch(`${url}${url.includes("?") ? "&" : "?"}v=${Date.now()}`, {
+    cache: "no-store"
+  });
+
+  if (!response.ok) {
+    throw new Error(`${url} вернул статус ${response.status}`);
+  }
+
+  return await response.json();
+}
+
 async function loadRatesLiveData() {
   try {
-    const response = await fetch(`rates/rates-live-data.json?v=${Date.now()}`, {
-      cache: "no-store"
-    });
+    return await fetchJsonNoStore("/api/rates");
+  } catch (apiError) {
+    console.warn("Не удалось загрузить /api/rates, пробуем локальный JSON", apiError);
 
-    if (!response.ok) {
-      throw new Error(`Файл rates-live-data.json не найден. Статус: ${response.status}`);
+    try {
+      return await fetchJsonNoStore("rates/rates-live-data.json");
+    } catch (jsonError) {
+      console.warn("Не удалось загрузить rates-live-data.json", jsonError);
+
+      return {
+        updatedAt: "Данные временно недоступны",
+        items: {},
+        errors: [apiError.message, jsonError.message]
+      };
     }
-
-    return await response.json();
-  } catch (error) {
-    console.warn("Не удалось загрузить rates-live-data.json", error);
-
-    return {
-      updatedAt: "Данные временно недоступны",
-      items: {}
-    };
   }
 }
 
@@ -247,6 +258,9 @@ function renderRateCard(id, liveItems) {
 function renderRatesPage(data) {
   const liveItems = data.items || {};
   const updatedAt = safeText(data.updatedAt, "Нет данных об обновлении");
+  const cacheStatus = data.cache && data.cache.status
+    ? `Режим: ${data.cache.status}`
+    : "Режим: live/fallback";
 
   const sections = RATE_GROUPS.map((group) => {
     const cards = Object.keys(RATE_META)
@@ -278,7 +292,7 @@ function renderRatesPage(data) {
         кривую США, индекс доллара, реальные ставки и волатильность облигационного рынка.
       </p>
 
-      <div class="rates-updated">Обновлено: ${updatedAt}</div>
+      <div class="rates-updated">Обновлено: ${updatedAt} · ${cacheStatus}</div>
     </section>
 
     ${sections}
@@ -296,7 +310,7 @@ async function initRatesPage() {
     <section class="rates-hero">
       <p class="rates-eyebrow">Rates Dashboard</p>
       <h1 class="rates-title">Загружаем данные ставок...</h1>
-      <p class="rates-description">Если данные не появятся, проверь файл rates/rates-live-data.json.</p>
+      <p class="rates-description">Сервер проверяет /api/rates. Если API недоступен, будет использован локальный JSON.</p>
     </section>
   `;
 
