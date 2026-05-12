@@ -1,5 +1,14 @@
 const rateDetailRoot = document.getElementById("rateDetail");
-const currentRateId = document.body.dataset.rateId;
+
+function getCurrentRateId() {
+  if (!document.body) {
+    return "";
+  }
+
+  return document.body.dataset.rateId || document.body.getAttribute("data-rate-id") || "";
+}
+
+const currentRateId = getCurrentRateId();
 
 const RATE_DETAILS = {
   fed: {
@@ -287,6 +296,15 @@ function safeText(value, fallback = "—") {
   return String(value);
 }
 
+function escapeHtml(value) {
+  return safeText(value)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
+}
+
 function getChangeClass(state) {
   if (state === "up") {
     return "rates-change-up";
@@ -332,28 +350,35 @@ async function loadRateLiveData() {
 }
 
 function renderList(items) {
-  return items.map((item) => `<li>${item}</li>`).join("");
+  if (!Array.isArray(items)) {
+    return "";
+  }
+
+  return items.map((item) => `<li>${escapeHtml(item)}</li>`).join("");
 }
 
 function renderRateDetail(meta, live, data) {
-  const value = safeText(live.value);
-  const change = safeText(live.change, "Без изменений");
-  const asOf = safeText(live.asOf, "Нет времени обновления");
-  const source = safeText(live.source || meta.source, meta.source);
+  const value = escapeHtml(safeText(live.value));
+  const change = escapeHtml(safeText(live.change, "Без изменений"));
+  const asOf = escapeHtml(safeText(live.asOf, "Нет времени обновления"));
+  const source = escapeHtml(safeText(live.source || meta.source, meta.source));
   const changeClass = getChangeClass(live.state);
+
   const cacheStatus = data && data.cache && data.cache.status
     ? `Режим: ${data.cache.status}`
     : "Режим: live/fallback";
 
   rateDetailRoot.innerHTML = `
-    <section class="rates-detail-hero">
-      <a href="${meta.backHref}" class="rates-detail-back">← Назад к ставкам</a>
+    <div class="page-back-row">
+      <a href="${escapeHtml(meta.backHref)}" class="page-back">← Назад к ставкам</a>
+    </div>
 
+    <section class="rates-detail-hero">
       <div class="rates-detail-title-row">
         <div>
-          <p class="rates-eyebrow">${meta.label}</p>
-          <h1 class="rates-detail-title">${meta.title}</h1>
-          <p class="rates-detail-subtitle">${meta.type}</p>
+          <p class="rates-eyebrow">${escapeHtml(meta.label)}</p>
+          <h1 class="rates-detail-title">${escapeHtml(meta.title)}</h1>
+          <p class="rates-detail-subtitle">${escapeHtml(meta.type)}</p>
         </div>
 
         <div class="rates-detail-source">
@@ -371,7 +396,7 @@ function renderRateDetail(meta, live, data) {
         <div class="rates-detail-value-meta">
           <div class="rates-change ${changeClass}">${change}</div>
           <div class="rates-asof">${asOf}</div>
-          <div class="rates-asof">${cacheStatus}</div>
+          <div class="rates-asof">${escapeHtml(cacheStatus)}</div>
         </div>
       </div>
     </section>
@@ -379,17 +404,17 @@ function renderRateDetail(meta, live, data) {
     <section class="rates-detail-grid">
       <article class="rates-detail-panel">
         <h2>Что показывает</h2>
-        <p>${meta.definition}</p>
+        <p>${escapeHtml(meta.definition)}</p>
       </article>
 
       <article class="rates-detail-panel">
         <h2>Почему важно</h2>
-        <p>${meta.why}</p>
+        <p>${escapeHtml(meta.why)}</p>
       </article>
 
       <article class="rates-detail-panel rates-detail-panel-wide">
         <h2>Как читать показатель</h2>
-        <p>${meta.howToRead}</p>
+        <p>${escapeHtml(meta.howToRead)}</p>
       </article>
 
       <article class="rates-detail-panel">
@@ -406,20 +431,18 @@ function renderRateDetail(meta, live, data) {
         </ul>
       </article>
     </section>
-
-    <div class="rates-detail-actions">
-      <a href="${meta.backHref}" class="btn btn-secondary">← Все ставки</a>
-      <a href="../index.html" class="btn btn-primary">На главную</a>
-    </div>
   `;
 }
 
 function renderEmptyState() {
   rateDetailRoot.innerHTML = `
+    <div class="page-back-row">
+      <a href="../rates.html" class="page-back">← Назад к ставкам</a>
+    </div>
+
     <section class="rates-detail-empty">
       <h1>Карточка не найдена</h1>
-      <p>Проверь значение data-rate-id в HTML-файле этой страницы.</p>
-      <a href="../rates.html" class="btn btn-primary">Вернуться к ставкам</a>
+      <p>Проверь значение <code>data-rate-id</code> в HTML-файле этой страницы.</p>
     </section>
   `;
 }
@@ -437,8 +460,12 @@ async function initRateDetail() {
   }
 
   rateDetailRoot.innerHTML = `
+    <div class="page-back-row">
+      <a href="../rates.html" class="page-back">← Назад к ставкам</a>
+    </div>
+
     <section class="rates-detail-hero">
-      <p class="rates-eyebrow">${meta.label}</p>
+      <p class="rates-eyebrow">${escapeHtml(meta.label)}</p>
       <h1 class="rates-detail-title">Загружаем карточку...</h1>
     </section>
   `;
