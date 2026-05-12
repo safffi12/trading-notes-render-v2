@@ -2856,3 +2856,146 @@ footer {
     padding: 48px 20px;
   }
 }
+/* =========================
+   UNIFIED BACK BUTTONS
+========================= */
+
+.page-back,
+.back-link,
+.back-home,
+.article-back,
+.section-back,
+.calendar-back,
+.rates-back,
+a.page-back,
+a.back-link,
+a.back-home,
+a.article-back,
+a.section-back,
+a.calendar-back,
+a.rates-back {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: fit-content;
+
+  min-height: 42px;
+  padding: 0 18px;
+
+  border-radius: 999px;
+  border: 1px solid #1d1d1f;
+
+  background: #1d1d1f;
+  color: #ffffff !important;
+
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1;
+
+  letter-spacing: -0.01em;
+  text-decoration: none !important;
+
+  box-shadow: none;
+  cursor: pointer;
+
+  transition:
+    background 180ms ease,
+    border-color 180ms ease,
+    color 180ms ease,
+    transform 180ms ease,
+    opacity 180ms ease;
+}
+
+.page-back:visited,
+.back-link:visited,
+.back-home:visited,
+.article-back:visited,
+.section-back:visited,
+.calendar-back:visited,
+.rates-back:visited {
+  color: #ffffff !important;
+}
+
+.page-back:hover,
+.back-link:hover,
+.back-home:hover,
+.article-back:hover,
+.section-back:hover,
+.calendar-back:hover,
+.rates-back:hover {
+  background: #000000;
+  border-color: #000000;
+  color: #ffffff !important;
+  transform: translateY(-1px);
+  opacity: 1;
+}
+
+.page-back:active,
+.back-link:active,
+.back-home:active,
+.article-back:active,
+.section-back:active,
+.calendar-back:active,
+.rates-back:active {
+  transform: translateY(0);
+}
+
+.page-back:focus-visible,
+.back-link:focus-visible,
+.back-home:focus-visible,
+.article-back:focus-visible,
+.section-back:focus-visible,
+.calendar-back:focus-visible,
+.rates-back:focus-visible {
+  outline: 2px solid rgba(29, 29, 31, 0.35);
+  outline-offset: 3px;
+}
+
+/* Отступы для верхней и нижней кнопки */
+.page-back-row {
+  width: 100%;
+  max-width: var(--content-width, 850px);
+  margin: 0 auto 28px;
+}
+
+.page-back-row-bottom {
+  width: 100%;
+  max-width: var(--content-width, 850px);
+  margin: 42px auto 0;
+}
+
+/* Мобильная версия */
+@media (max-width: 734px) {
+  .page-back,
+  .back-link,
+  .back-home,
+  .article-back,
+  .section-back,
+  .calendar-back,
+  .rates-back {
+    min-height: 40px;
+    padding: 0 16px;
+    font-size: 13px;
+  }
+
+  .page-back-row {
+    margin-bottom: 22px;
+  }
+
+  .page-back-row-bottom {
+    margin-top: 34px;
+  }
+}
+
+/* =========================
+   RATES DETAIL: HIDE OLD BOTTOM BLUE BUTTONS
+========================= */
+
+.rates-detail-page .rate-detail-footer,
+.rates-detail-page .rate-detail-actions,
+.rates-detail-page .rate-detail-bottom,
+.rates-detail-page .detail-actions-bottom,
+.rates-detail-page .rate-back-bottom,
+.rates-detail-page .card-actions {
+  display: none !important;
+}
