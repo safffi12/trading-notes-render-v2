@@ -10,7 +10,7 @@
     "speeches"
   ];
 
-  const LIVE_CALENDAR_API_URL = "/api/investing-calendar-live";
+  const LIVE_CALENDAR_API_URL = "/api/calendar";
   const LIVE_FETCH_TIMEOUT_MS = 20000;
 
   const RUSSIAN_MONTHS = {
@@ -27,21 +27,6 @@
     ноября: 10,
     декабря: 11
   };
-
-  const RUSSIAN_MONTH_NAMES = [
-    "января",
-    "февраля",
-    "марта",
-    "апреля",
-    "мая",
-    "июня",
-    "июля",
-    "августа",
-    "сентября",
-    "октября",
-    "ноября",
-    "декабря"
-  ];
 
   let activeCalendarData = null;
   let liveCalendarLoaded = false;
@@ -61,12 +46,7 @@
 
   function getCalendarItems() {
     const data = getCalendarData();
-
-    if (!data) {
-      return {};
-    }
-
-    return data.items;
+    return data && data.items ? data.items : {};
   }
 
   function getOrderedCalendarEntries() {
@@ -112,64 +92,6 @@
       .trim();
   }
 
-  function cloneData(data) {
-    return JSON.parse(JSON.stringify(data));
-  }
-
-  function getImportanceLevel(importance) {
-    if (importance === "Высокая") {
-      return 3;
-    }
-
-    if (importance === "Средняя") {
-      return 2;
-    }
-
-    return 1;
-  }
-
-  function getImportanceClass(importance) {
-    if (importance === "Высокая") {
-      return "calendar-importance-high";
-    }
-
-    if (importance === "Средняя") {
-      return "calendar-importance-medium";
-    }
-
-    return "calendar-importance-low";
-  }
-
-  function renderImportanceIcons(importance) {
-    const level = getImportanceLevel(importance);
-    let icons = "";
-
-    for (let i = 1; i <= 3; i += 1) {
-      const activeClass = i <= level ? " calendar-importance-check-active" : "";
-
-      icons += `<span class="calendar-importance-check${activeClass}" aria-hidden="true">✓</span>`;
-    }
-
-    return `
-      <span class="calendar-importance-icons" aria-label="Важность: ${escapeAttribute(safeText(importance))}">
-        ${icons}
-      </span>
-    `;
-  }
-
-  function renderImportance(importance) {
-    const safeImportance = safeText(importance, "Низкая");
-
-    return `
-      <div class="calendar-importance-wrap">
-        ${renderImportanceIcons(safeImportance)}
-        <span class="calendar-importance ${getImportanceClass(safeImportance)}">
-          ${escapeHtml(safeImportance)}
-        </span>
-      </div>
-    `;
-  }
-
   function hasPlaceholderValue(value) {
     const normalized = normalizeText(value);
 
@@ -179,6 +101,7 @@
 
     return (
       normalized === "-" ||
+      normalized === "—" ||
       normalized.includes("проверить") ||
       normalized.includes("уточнить") ||
       normalized.includes("еще не опубликован") ||
@@ -231,6 +154,55 @@
     return date.getTime() < Date.now();
   }
 
+  function isEventObjectPast(event) {
+    if (!event || !event.date) {
+      return false;
+    }
+
+    return isPastDate(event.date);
+  }
+
+  function getImportanceLevel(importance) {
+    if (importance === "Высокая") return 3;
+    if (importance === "Средняя") return 2;
+    return 1;
+  }
+
+  function getImportanceClass(importance) {
+    if (importance === "Высокая") return "calendar-importance-high";
+    if (importance === "Средняя") return "calendar-importance-medium";
+    return "calendar-importance-low";
+  }
+
+  function renderImportanceIcons(importance) {
+    const level = getImportanceLevel(importance);
+    let icons = "";
+
+    for (let i = 1; i <= 3; i += 1) {
+      const activeClass = i <= level ? " calendar-importance-check-active" : "";
+      icons += `<span class="calendar-importance-check${activeClass}" aria-hidden="true">✓</span>`;
+    }
+
+    return `
+      <span class="calendar-importance-icons" aria-label="Важность: ${escapeAttribute(safeText(importance))}">
+        ${icons}
+      </span>
+    `;
+  }
+
+  function renderImportance(importance) {
+    const safeImportance = safeText(importance, "Низкая");
+
+    return `
+      <div class="calendar-importance-wrap">
+        ${renderImportanceIcons(safeImportance)}
+        <span class="calendar-importance ${getImportanceClass(safeImportance)}">
+          ${escapeHtml(safeImportance)}
+        </span>
+      </div>
+    `;
+  }
+
   function itemNeedsUpdate(item) {
     if (!item) {
       return true;
@@ -238,6 +210,10 @@
 
     if (item._liveStatus === "fresh") {
       return false;
+    }
+
+    if (item._liveStatus === "error") {
+      return true;
     }
 
     const metrics = Array.isArray(item.metrics) ? item.metrics : [];
@@ -300,194 +276,161 @@
     `;
   }
 
-  function getFirstMetrics(item, limit = 3) {
-    if (!item || !Array.isArray(item.metrics)) {
-      return [];
+  function getNextEvent(item) {
+    if (item && Array.isArray(item.upcomingEvents) && item.upcomingEvents.length > 0) {
+      const futureEvents = item.upcomingEvents.filter((event) => !isEventObjectPast(event));
+
+      if (futureEvents.length > 0) {
+        return futureEvents[0];
+      }
     }
 
-    return item.metrics.slice(0, limit);
-  }
-
-  function isEventObjectPast(event) {
-  if (!event || !event.date) {
-    return false;
-  }
-
-  return isPastDate(event.date);
-}
-
-function getNextEvent(item) {
-  if (item && Array.isArray(item.upcomingEvents) && item.upcomingEvents.length > 0) {
-    const futureEvents = item.upcomingEvents.filter((event) => {
-      return !isEventObjectPast(event);
-    });
-
-    if (futureEvents.length > 0) {
-      return futureEvents[0];
+    if (item && item.nextRelease && !isPastDate(item.nextRelease.date)) {
+      return {
+        name: item.nextRelease.title,
+        date: item.nextRelease.date,
+        time: item.nextRelease.time,
+        importance: "Средняя"
+      };
     }
+
+    return null;
   }
 
-  if (item && item.nextRelease && !isPastDate(item.nextRelease.date)) {
+  function getDisplayNextRelease(item) {
+    if (item && item.nextRelease && !isPastDate(item.nextRelease.date)) {
+      return item.nextRelease;
+    }
+
+    const nextEvent = getNextEvent(item);
+
+    if (nextEvent) {
+      return {
+        title: nextEvent.name,
+        date: nextEvent.date,
+        time: nextEvent.time
+      };
+    }
+
     return {
-      name: item.nextRelease.title,
-      date: item.nextRelease.date,
-      time: item.nextRelease.time,
-      importance: "Средняя"
+      title: "Следующее событие не найдено",
+      date: "Ожидает обновления",
+      time: "—"
     };
   }
-
-  return null;
-}
-
-function getDisplayNextRelease(item) {
-  if (item && item.nextRelease && !isPastDate(item.nextRelease.date)) {
-    return item.nextRelease;
-  }
-
-  const nextEvent = getNextEvent(item);
-
-  if (nextEvent) {
-    return {
-      title: nextEvent.name,
-      date: nextEvent.date,
-      time: nextEvent.time
-    };
-  }
-
-  return {
-    title: "Следующее событие не найдено",
-    date: "Ожидает обновления",
-    time: "—"
-  };
-}
 
   function getOverviewFallbackValue(item, usedLabels) {
-  const firstMetric = Array.isArray(item.metrics) ? item.metrics[0] : null;
-  const nextEvent = getNextEvent(item);
+    const firstMetric = Array.isArray(item.metrics) ? item.metrics[0] : null;
+    const nextEvent = getNextEvent(item);
 
-  if (
-    firstMetric &&
-    firstMetric.forecast &&
-    !hasPlaceholderValue(firstMetric.forecast) &&
-    !usedLabels.has("Прогноз")
-  ) {
-    usedLabels.add("Прогноз");
-
-    return {
-      name: "Прогноз",
-      actual: firstMetric.forecast
-    };
-  }
-
-  if (
-    firstMetric &&
-    firstMetric.previous &&
-    !hasPlaceholderValue(firstMetric.previous) &&
-    !usedLabels.has("Предыдущее")
-  ) {
-    usedLabels.add("Предыдущее");
-
-    return {
-      name: "Предыдущее",
-      actual: firstMetric.previous
-    };
-  }
-
-  if (nextEvent && !usedLabels.has("Дата события")) {
-    usedLabels.add("Дата события");
-
-    return {
-      name: "Дата события",
-      actual: nextEvent.date
-    };
-  }
-
-  if (nextEvent && !usedLabels.has("Время")) {
-    usedLabels.add("Время");
-
-    return {
-      name: "Время",
-      actual: nextEvent.time
-    };
-  }
-
-  if (nextEvent && !usedLabels.has("Важность")) {
-    usedLabels.add("Важность");
-
-    return {
-      name: "Важность",
-      actual: nextEvent.importance || "Средняя"
-    };
-  }
-
-  return {
-    name: "Статус",
-    actual: "Ожидается"
-  };
-}
-
-function getOverviewMetricCells(item) {
-  const rawMetrics = Array.isArray(item.metrics) ? item.metrics : [];
-
-  const metrics = rawMetrics.filter((metric) => {
-    const metricName = normalizeText(metric.name);
-
-    if (metricName.includes("следующий релиз")) {
-      return false;
+    if (
+      firstMetric &&
+      firstMetric.forecast &&
+      !hasPlaceholderValue(firstMetric.forecast) &&
+      !usedLabels.has("Прогноз")
+    ) {
+      usedLabels.add("Прогноз");
+      return {
+        name: "Прогноз",
+        actual: firstMetric.forecast
+      };
     }
 
-    if (metricName.includes("следующее событие")) {
-      return false;
+    if (
+      firstMetric &&
+      firstMetric.previous &&
+      !hasPlaceholderValue(firstMetric.previous) &&
+      !usedLabels.has("Предыдущее")
+    ) {
+      usedLabels.add("Предыдущее");
+      return {
+        name: "Предыдущее",
+        actual: firstMetric.previous
+      };
     }
 
-    return true;
-  });
+    if (nextEvent && !usedLabels.has("Дата события")) {
+      usedLabels.add("Дата события");
+      return {
+        name: "Дата события",
+        actual: nextEvent.date
+      };
+    }
 
-  const cells = [];
-  const usedLabels = new Set();
+    if (nextEvent && !usedLabels.has("Время")) {
+      usedLabels.add("Время");
+      return {
+        name: "Время",
+        actual: nextEvent.time
+      };
+    }
 
-  metrics.slice(0, 3).forEach((metric) => {
-    const name = safeText(metric.name, "Показатель");
+    if (nextEvent && !usedLabels.has("Важность")) {
+      usedLabels.add("Важность");
+      return {
+        name: "Важность",
+        actual: nextEvent.importance || "Средняя"
+      };
+    }
 
-    usedLabels.add(name);
+    return {
+      name: "Статус",
+      actual: "Ожидается"
+    };
+  }
 
-    cells.push({
-      name,
-      actual: safeText(metric.actual, "Нет данных")
+  function getOverviewMetricCells(item) {
+    const rawMetrics = Array.isArray(item.metrics) ? item.metrics : [];
+
+    const metrics = rawMetrics.filter((metric) => {
+      const metricName = normalizeText(metric.name);
+      return !metricName.includes("следующий релиз") && !metricName.includes("следующее событие");
     });
-  });
 
-  while (cells.length < 3) {
-    cells.push(getOverviewFallbackValue(item, usedLabels));
+    const cells = [];
+    const usedLabels = new Set();
+
+    metrics.slice(0, 3).forEach((metric) => {
+      const name = safeText(metric.name, "Показатель");
+      usedLabels.add(name);
+
+      cells.push({
+        name,
+        actual: safeText(metric.actual, "Нет данных")
+      });
+    });
+
+    while (cells.length < 3) {
+      cells.push(getOverviewFallbackValue(item, usedLabels));
+    }
+
+    return cells.slice(0, 3);
   }
 
-  return cells.slice(0, 3);
-}
+  function renderOverviewMetrics(item) {
+    if (!item) {
+      return "";
+    }
 
-function renderOverviewMetrics(item) {
-  if (!item) {
-    return "";
+    const metrics = getOverviewMetricCells(item);
+
+    if (metrics.length === 0) {
+      return "";
+    }
+
+    const metricHtml = metrics
+      .map((metric) => {
+        return `
+          <div>
+            <span>${escapeHtml(metric.name)}</span>
+            <strong>${escapeHtml(metric.actual)}</strong>
+          </div>
+        `;
+      })
+      .join("");
+
+    return `<div class="calendar-card-metrics">${metricHtml}</div>`;
   }
-
-  const metrics = getOverviewMetricCells(item);
-
-  if (metrics.length === 0) {
-    return "";
-  }
-
-  const metricHtml = metrics
-    .map((metric) => {
-      return `
-        <div>
-          <span>${escapeHtml(metric.name)}</span>
-          <strong>${escapeHtml(metric.actual)}</strong>
-        </div>
-      `;
-    })
-    .join("");
-
-  return `<div class="calendar-card-metrics">${metricHtml}</div>`;
-}
 
   function renderOverviewNextEvent(item) {
     const event = getNextEvent(item);
@@ -682,11 +625,13 @@ function renderOverviewMetrics(item) {
 
     const data = getCalendarData();
 
-    if (!data) {
+    if (!data || !data.items) {
       detailContainer.innerHTML = `
         <a href="calendar-page.html" class="back-pill">Назад к календарю</a>
-        ${renderReleaseCard("Последний релиз", item.lastRelease, false)}
-        ${renderReleaseCard("Следующий релиз", getDisplayNextRelease(item), true)}
+        ${renderErrorCard(
+          "Календарь не загрузился",
+          "Файл calendar-data.js не подключился или содержит ошибку. Проверь путь к файлу и синтаксис JavaScript."
+        )}
       `;
       return;
     }
@@ -724,7 +669,7 @@ function renderOverviewMetrics(item) {
 
       <section class="calendar-release-grid" aria-label="Последний и следующий релиз">
         ${renderReleaseCard("Последний релиз", item.lastRelease, false)}
-        ${renderReleaseCard("Следующий релиз", item.nextRelease, true)}
+        ${renderReleaseCard("Следующий релиз", getDisplayNextRelease(item), true)}
       </section>
 
       <section class="calendar-data-section">
@@ -746,511 +691,9 @@ function renderOverviewMetrics(item) {
     `;
   }
 
-  function parseInvestingDateTime(value) {
-    const text = safeText(value, "").trim();
-
-    const match = text.match(
-      /^(\d{4})[/-](\d{1,2})[/-](\d{1,2})\s+(\d{1,2}):(\d{2})(?::(\d{2}))?/
-    );
-
-    if (match) {
-      const year = Number(match[1]);
-      const month = Number(match[2]) - 1;
-      const day = Number(match[3]);
-      const hour = Number(match[4]);
-      const minute = Number(match[5]);
-      const second = match[6] ? Number(match[6]) : 0;
-
-      const date = new Date(year, month, day, hour, minute, second);
-
-      if (!Number.isNaN(date.getTime())) {
-        return date;
-      }
-    }
-
-    const fallbackDate = new Date(text);
-
-    if (!Number.isNaN(fallbackDate.getTime())) {
-      return fallbackDate;
-    }
-
-    return null;
-  }
-
-  function formatRussianDate(date) {
-    if (!(date instanceof Date) || Number.isNaN(date.getTime())) {
-      return "Нет даты";
-    }
-
-    return `${date.getDate()} ${RUSSIAN_MONTH_NAMES[date.getMonth()]} ${date.getFullYear()}`;
-  }
-
-  function formatLiveUpdateDate(value) {
-    const date = new Date(value);
-
-    if (Number.isNaN(date.getTime())) {
-      return safeText(value, "Автообновление");
-    }
-
-    const day = date.getDate();
-    const month = RUSSIAN_MONTH_NAMES[date.getMonth()];
-    const year = date.getFullYear();
-    const hours = String(date.getHours()).padStart(2, "0");
-    const minutes = String(date.getMinutes()).padStart(2, "0");
-
-    return `${day} ${month} ${year}, ${hours}:${minutes}`;
-  }
-
-  function isSameCalendarDay(firstDate, secondDate) {
-    if (!firstDate || !secondDate) {
-      return false;
-    }
-
-    return (
-      firstDate.getFullYear() === secondDate.getFullYear() &&
-      firstDate.getMonth() === secondDate.getMonth() &&
-      firstDate.getDate() === secondDate.getDate()
-    );
-  }
-
-  function hasAnyValue(event) {
-    return Boolean(event.actual || event.previous || event.forecast);
-  }
-
-  function isHolidayEvent(event) {
-    const text = normalizeText(event.event);
-
-    if (!text) {
-      return true;
-    }
-
-    const looksLikeHoliday =
-      text.includes("holiday") ||
-      text.includes("bank holiday") ||
-      text.includes("labor day") ||
-      text.includes("greenery day") ||
-      text.includes("memorial day");
-
-    return looksLikeHoliday && !hasAnyValue(event);
-  }
-
-  function normalizeLiveEvent(rawEvent) {
-    const date = parseInvestingDateTime(rawEvent.dateTime);
-
-    if (!date) {
-      return null;
-    }
-
-    const event = safeText(rawEvent.event, "").trim();
-    const country = safeText(rawEvent.country, "").trim();
-
-    if (!event) {
-      return null;
-    }
-
-    const normalizedEvent = {
-      id: safeText(rawEvent.id, ""),
-      date,
-      timestamp: date.getTime(),
-      dateTime: rawEvent.dateTime,
-      time: safeText(rawEvent.time, ""),
-      country,
-      event,
-      actual: normalizeNullableValue(rawEvent.actual),
-      forecast: normalizeNullableValue(rawEvent.forecast),
-      previous: normalizeNullableValue(rawEvent.previous),
-      importance: safeText(rawEvent.importance, "Низкая"),
-      importanceLevel: Number(rawEvent.importanceLevel) || 1
-    };
-
-    if (isHolidayEvent(normalizedEvent)) {
-      return null;
-    }
-
-    return normalizedEvent;
-  }
-
-  function normalizeNullableValue(value) {
-    const text = safeText(value, "").trim();
-
-    if (!text || text === "-" || text === "—") {
-      return null;
-    }
-
-    return text;
-  }
-
-  function prepareLiveEvents(items) {
-    if (!Array.isArray(items)) {
-      return [];
-    }
-
-    const seen = new Set();
-    const events = [];
-
-    items.forEach((rawEvent) => {
-      const event = normalizeLiveEvent(rawEvent);
-
-      if (!event) {
-        return;
-      }
-
-      const fingerprint = [
-        event.id,
-        event.dateTime,
-        event.country,
-        event.event
-      ].join("|");
-
-      if (seen.has(fingerprint)) {
-        return;
-      }
-
-      seen.add(fingerprint);
-      events.push(event);
-    });
-
-    return events.sort((a, b) => a.timestamp - b.timestamp);
-  }
-
-  function eventText(event) {
-    return `${event.country || ""} ${event.event || ""}`.toLowerCase();
-  }
-
-  function isUnitedStates(event) {
-    return normalizeText(event.country) === "united states";
-  }
-
-  function matchesCalendarKey(key, event) {
-    const text = eventText(event);
-
-    if (key === "cpi") {
-      return (
-        isUnitedStates(event) &&
-        (
-          /\bcpi\b/i.test(event.event) ||
-          /consumer price index/i.test(event.event)
-        ) &&
-        !/\bppi\b/i.test(event.event)
-      );
-    }
-
-    if (key === "nfp") {
-      return (
-        isUnitedStates(event) &&
-        (
-          /nonfarm payrolls/i.test(event.event) ||
-          /non-farm payrolls/i.test(event.event) ||
-          /unemployment rate/i.test(event.event) ||
-          /average hourly earnings/i.test(event.event) ||
-          /participation rate/i.test(event.event)
-        )
-      );
-    }
-
-    if (key === "fomc") {
-  const noisyFedStats =
-    /reserve balances/i.test(event.event) ||
-    /federal reserve banks/i.test(event.event) ||
-    /h\.4\.1/i.test(event.event) ||
-    /commercial paper/i.test(event.event) ||
-    /consumer credit/i.test(event.event) ||
-    /money supply/i.test(event.event);
-
-  if (noisyFedStats) {
-    return false;
-  }
-
-  return (
-    isUnitedStates(event) &&
-    (
-      /fomc/i.test(event.event) ||
-      /fed interest rate decision/i.test(event.event) ||
-      /federal open market committee/i.test(event.event) ||
-      /monetary policy statement/i.test(event.event) ||
-      /fed press conference/i.test(event.event) ||
-      /fomc minutes/i.test(event.event)
-    )
-  );
-}
-
-    if (key === "gdp") {
-      return (
-        isUnitedStates(event) &&
-        (
-          /\bgdp\b/i.test(event.event) ||
-          /gross domestic product/i.test(event.event)
-        )
-      );
-    }
-
-    if (key === "rateDecisions") {
-      return (
-        /interest rate decision/i.test(event.event) ||
-        /rate decision/i.test(event.event) ||
-        /fed interest rate/i.test(text) ||
-        /ecb interest rate/i.test(text) ||
-        /boe interest rate/i.test(text) ||
-        /boj interest rate/i.test(text) ||
-        /bank of canada interest rate/i.test(text) ||
-        /rba interest rate/i.test(text) ||
-        /rbnz interest rate/i.test(text) ||
-        /snb interest rate/i.test(text)
-      );
-    }
-
-    if (key === "speeches") {
-      return (
-        /press conference/i.test(event.event) ||
-        /speaks/i.test(event.event) ||
-        /speech/i.test(event.event) ||
-        /testifies/i.test(event.event) ||
-        /meeting minutes/i.test(event.event) ||
-        /fomc minutes/i.test(event.event) ||
-        /ecb minutes/i.test(event.event) ||
-        /fed chair/i.test(event.event) ||
-        /ecb president/i.test(event.event) ||
-        /boe governor/i.test(event.event) ||
-        /boj governor/i.test(event.event) ||
-        /powell/i.test(event.event) ||
-        /lagarde/i.test(event.event)
-      );
-    }
-
-    return false;
-  }
-
-  function getMetricPriority(key, event) {
-    const name = normalizeText(event.event);
-
-    if (key === "cpi") {
-      if (name.includes("core cpi") && name.includes("yoy")) return 1;
-      if (name.includes("core cpi") && name.includes("mom")) return 2;
-      if (name.includes("cpi") && name.includes("yoy")) return 3;
-      if (name.includes("cpi") && name.includes("mom")) return 4;
-      return 9;
-    }
-
-    if (key === "nfp") {
-      if (name.includes("nonfarm payrolls")) return 1;
-      if (name.includes("unemployment rate")) return 2;
-      if (name.includes("average hourly earnings") && name.includes("mom")) return 3;
-      if (name.includes("average hourly earnings") && name.includes("yoy")) return 4;
-      return 9;
-    }
-
-    if (key === "fomc") {
-      if (name.includes("interest rate decision")) return 1;
-      if (name.includes("fomc statement")) return 2;
-      if (name.includes("press conference")) return 3;
-      return 9;
-    }
-
-    if (key === "gdp") {
-      if (name.includes("gdp") && name.includes("qoq")) return 1;
-      if (name.includes("gdp") && name.includes("annualized")) return 2;
-      if (name.includes("gdp price index")) return 3;
-      return 9;
-    }
-
-    if (key === "rateDecisions") {
-      if (name.includes("fed")) return 1;
-      if (name.includes("ecb")) return 2;
-      if (name.includes("boe")) return 3;
-      if (name.includes("boj")) return 4;
-      return 9;
-    }
-
-    return 9;
-  }
-
-  function selectMetricEvents(key, matchedEvents) {
-    const now = Date.now();
-
-    const pastEvents = matchedEvents
-      .filter((event) => event.timestamp <= now && hasAnyValue(event))
-      .sort((a, b) => b.timestamp - a.timestamp);
-
-    const futureEvents = matchedEvents
-      .filter((event) => event.timestamp > now && hasAnyValue(event))
-      .sort((a, b) => a.timestamp - b.timestamp);
-
-    if (key === "rateDecisions") {
-      const sourceEvents = pastEvents.length > 0 ? pastEvents : futureEvents;
-
-      return sourceEvents
-        .slice()
-        .sort((a, b) => {
-          const priorityDiff = getMetricPriority(key, a) - getMetricPriority(key, b);
-
-          if (priorityDiff !== 0) {
-            return priorityDiff;
-          }
-
-          return b.timestamp - a.timestamp;
-        })
-        .slice(0, 6);
-    }
-
-    const sourceEvents = pastEvents.length > 0 ? pastEvents : futureEvents;
-
-    if (sourceEvents.length === 0) {
-      return [];
-    }
-
-    const anchorEvent = sourceEvents[0];
-
-    const sameDayEvents = sourceEvents.filter((event) => {
-      return isSameCalendarDay(event.date, anchorEvent.date);
-    });
-
-    return sameDayEvents
-      .sort((a, b) => {
-        const priorityDiff = getMetricPriority(key, a) - getMetricPriority(key, b);
-
-        if (priorityDiff !== 0) {
-          return priorityDiff;
-        }
-
-        return a.timestamp - b.timestamp;
-      })
-      .slice(0, 6);
-  }
-
-  function selectUpcomingEvents(key, matchedEvents) {
-    const now = Date.now();
-
-    return matchedEvents
-      .filter((event) => event.timestamp > now)
-      .sort((a, b) => {
-        const priorityDiff = getMetricPriority(key, a) - getMetricPriority(key, b);
-
-        if (key !== "rateDecisions" && priorityDiff !== 0) {
-          return a.timestamp - b.timestamp;
-        }
-
-        return a.timestamp - b.timestamp;
-      })
-      .slice(0, 8);
-  }
-
-  function eventToMetric(event) {
-    return {
-      name: event.event,
-      actual: event.actual || "Еще не опубликован",
-      previous: event.previous || "Нет данных",
-      forecast: event.forecast || "Нет данных"
-    };
-  }
-
-  function eventToUpcomingEvent(event) {
-    return {
-      name: event.event,
-      date: formatRussianDate(event.date),
-      time: event.time || "Нет времени",
-      importance: event.importance || "Низкая"
-    };
-  }
-
-  function eventToRelease(event) {
-    return {
-      title: event.event,
-      date: formatRussianDate(event.date),
-      time: event.time || "Нет времени"
-    };
-  }
-
-  function buildLivePatchForItem(key, item, matchedEvents, livePayload) {
-    const now = Date.now();
-
-    const sortedEvents = matchedEvents
-      .slice()
-      .sort((a, b) => a.timestamp - b.timestamp);
-
-    const pastEvents = sortedEvents
-      .filter((event) => event.timestamp <= now)
-      .sort((a, b) => b.timestamp - a.timestamp);
-
-    const futureEvents = sortedEvents
-      .filter((event) => event.timestamp > now)
-      .sort((a, b) => a.timestamp - b.timestamp);
-
-    const metricEvents = selectMetricEvents(key, sortedEvents);
-    const upcomingEvents = selectUpcomingEvents(key, sortedEvents);
-
-    const lastReleaseEvent =
-      pastEvents.find((event) => hasAnyValue(event)) ||
-      pastEvents[0] ||
-      null;
-
-    const nextReleaseEvent = futureEvents[0] || null;
-
-    const patch = {
-      _liveStatus: "fresh",
-      _liveSource: livePayload.source || "Investing.com",
-      _liveUpdatedAt: livePayload.updatedAt || new Date().toISOString()
-    };
-
-    if (metricEvents.length > 0) {
-      patch.metrics = metricEvents.map(eventToMetric);
-    }
-
-    if (upcomingEvents.length > 0) {
-      patch.upcomingEvents = upcomingEvents.map(eventToUpcomingEvent);
-    }
-
-    if (lastReleaseEvent) {
-      patch.lastRelease = eventToRelease(lastReleaseEvent);
-    }
-
-    if (nextReleaseEvent) {
-      patch.nextRelease = eventToRelease(nextReleaseEvent);
-    }
-
-    return patch;
-  }
-
-  function mergeCalendarWithLiveData(baseData, livePayload) {
-    const clonedData = cloneData(baseData);
-    const liveEvents = prepareLiveEvents(livePayload.items);
-
-    if (!clonedData.items || liveEvents.length === 0) {
-      return clonedData;
-    }
-
-    Object.keys(clonedData.items).forEach((key) => {
-      const item = clonedData.items[key];
-
-      const matchedEvents = liveEvents.filter((event) => {
-        return matchesCalendarKey(key, event);
-      });
-
-      if (matchedEvents.length === 0) {
-        item._liveStatus = "missing";
-        return;
-      }
-
-      const patch = buildLivePatchForItem(key, item, matchedEvents, livePayload);
-
-      clonedData.items[key] = {
-        ...item,
-        ...patch
-      };
-    });
-
-    clonedData.updatedAt = formatLiveUpdateDate(livePayload.updatedAt);
-    clonedData.liveSource = livePayload.source || "Investing.com";
-    clonedData.liveRowsFound = livePayload.rowsFound || liveEvents.length;
-
-    return clonedData;
-  }
-
   async function fetchLiveCalendarData() {
     const controller = new AbortController();
-
-    const timeoutId = window.setTimeout(() => {
-      controller.abort();
-    }, LIVE_FETCH_TIMEOUT_MS);
+    const timeoutId = window.setTimeout(() => controller.abort(), LIVE_FETCH_TIMEOUT_MS);
 
     try {
       const response = await fetch(LIVE_CALENDAR_API_URL, {
@@ -1266,6 +709,10 @@ function renderOverviewMetrics(item) {
 
       if (!response.ok || !data || data.ok === false) {
         throw new Error(data && data.error ? data.error : `HTTP ${response.status}`);
+      }
+
+      if (!data.items) {
+        throw new Error("API календаря не вернул items");
       }
 
       return data;
@@ -1289,20 +736,28 @@ function renderOverviewMetrics(item) {
     try {
       const livePayload = await fetchLiveCalendarData();
 
-      activeCalendarData = mergeCalendarWithLiveData(baseData, livePayload);
+      activeCalendarData = {
+        ...baseData,
+        ...livePayload,
+        items: {
+          ...baseData.items,
+          ...livePayload.items
+        }
+      };
+
       liveCalendarLoaded = true;
       liveCalendarError = null;
-
       rerenderCalendar();
 
       console.log("calendar live data loaded", {
         source: livePayload.source,
-        rowsFound: livePayload.rowsFound,
-        updatedAt: livePayload.updatedAt
+        updatedAt: livePayload.updatedAt,
+        cache: livePayload.cache
       });
     } catch (error) {
       liveCalendarError = error;
       console.warn("calendar live data failed", error);
+      rerenderCalendar();
     }
   }
 
@@ -1326,7 +781,7 @@ function renderOverviewMetrics(item) {
       return {
         loaded: liveCalendarLoaded,
         error: liveCalendarError ? liveCalendarError.message : null,
-        source: activeCalendarData ? activeCalendarData.liveSource : null,
+        source: activeCalendarData ? activeCalendarData.source : null,
         updatedAt: activeCalendarData ? activeCalendarData.updatedAt : null
       };
     }
