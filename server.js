@@ -1,14 +1,14 @@
 const http = require("http");
 const fs = require("fs");
 const path = require("path");
+const vm = require("vm");
 
 const PORT = process.env.PORT || 3000;
-const SERVER_VERSION = "RENDER_NODE_DYNAMIC_RATES_DAILY_CACHE_V1";
-
+const SERVER_VERSION = "RENDER_NODE_DYNAMIC_CALENDAR_OFFICIAL_SOURCES_V1";
 const rootDir = path.resolve(__dirname);
 
 /* =========================
-   COMMODITIES CONFIG
+   CONFIG
 ========================= */
 
 const commodities = [
@@ -20,17 +20,14 @@ const commodities = [
   { symbol: "NG=F", name: "Natural Gas" }
 ];
 
-/* =========================
-   RATES CONFIG
-========================= */
-
 const RATES_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
-const RATES_FALLBACK_FILE = path.join(rootDir, "rates", "rates-live-data.json");
+const CALENDAR_CACHE_TTL_MS = 3 * 60 * 60 * 1000;
 
-const ratesCache = {
-  createdAt: 0,
-  payload: null
-};
+const RATES_FALLBACK_FILE = path.join(rootDir, "rates", "rates-live-data.json");
+const CALENDAR_FALLBACK_FILE = path.join(rootDir, "calendar", "calendar-data.js");
+
+const ratesCache = { createdAt: 0, payload: null };
+const calendarCache = { createdAt: 0, payload: null };
 
 const FRED_SERIES = {
   fedUpper: "DFEDTARU",
@@ -41,47 +38,52 @@ const FRED_SERIES = {
   us30y: "DGS30",
   realyield: "DFII10",
   dollarfunding: "SOFR",
-  bojProxy: "IRSTCI01JPM156N"
+  bojProxy: "IRSTCI01JPM156N",
+  gdpGrowth: "A191RL1Q225SBEA"
 };
 
-/* =========================
-   INVESTING CALENDAR CONFIG
-========================= */
-
-const INVESTING_BASE_URL = "https://www.investing.com";
-const INVESTING_CALENDAR_PAGE_URL = `${INVESTING_BASE_URL}/economic-calendar/`;
-const INVESTING_CALENDAR_API_URL =
-  `${INVESTING_BASE_URL}/economic-calendar/Service/getCalendarFilteredData`;
-
-const INVESTING_CALENDAR_CACHE_TTL_MS = 30 * 60 * 1000;
-
-const investingCalendarCache = {
-  createdAt: 0,
-  payload: null
+const BLS_SERIES = {
+  cpiAllItems: "CUSR0000SA0",
+  cpiCore: "CUSR0000SA0L1E",
+  nonfarmPayrolls: "CES0000000001",
+  unemploymentRate: "LNS14000000",
+  averageHourlyEarnings: "CES0500000003"
 };
 
-const investingCookieCache = {
-  expiresAt: 0,
-  value: ""
+const OFFICIAL_RELEASE_SCHEDULES = {
+  cpi: [
+    { period: "2026-M03", title: "Consumer Price Index for March 2026", date: "2026-04-10", time: "08:30 ET", importance: "Высокая" },
+    { period: "2026-M04", title: "Consumer Price Index for April 2026", date: "2026-05-12", time: "08:30 ET", importance: "Высокая" },
+    { period: "2026-M05", title: "Consumer Price Index for May 2026", date: "2026-06-10", time: "08:30 ET", importance: "Высокая" },
+    { period: "2026-M06", title: "Consumer Price Index for June 2026", date: "2026-07-14", time: "08:30 ET", importance: "Высокая" },
+    { period: "2026-M07", title: "Consumer Price Index for July 2026", date: "2026-08-12", time: "08:30 ET", importance: "Высокая" }
+  ],
+  nfp: [
+    { period: "2026-M03", title: "Employment Situation for March 2026", date: "2026-04-03", time: "08:30 ET", importance: "Высокая" },
+    { period: "2026-M04", title: "Employment Situation for April 2026", date: "2026-05-08", time: "08:30 ET", importance: "Высокая" },
+    { period: "2026-M05", title: "Employment Situation for May 2026", date: "2026-06-05", time: "08:30 ET", importance: "Высокая" },
+    { period: "2026-M06", title: "Employment Situation for June 2026", date: "2026-07-02", time: "08:30 ET", importance: "Высокая" },
+    { period: "2026-M07", title: "Employment Situation for July 2026", date: "2026-08-07", time: "08:30 ET", importance: "Высокая" },
+    { period: "2026-M08", title: "Employment Situation for August 2026", date: "2026-09-04", time: "08:30 ET", importance: "Высокая" }
+  ],
+  gdp: [
+    { period: "2026-Q1", title: "GDP Q1 2026, advance estimate", date: "2026-04-30", time: "08:30 ET", importance: "Высокая" },
+    { period: "2026-Q1", title: "GDP Q1 2026, second estimate", date: "2026-05-28", time: "08:30 ET", importance: "Средняя" },
+    { period: "2026-Q1", title: "GDP Q1 2026, third estimate", date: "2026-06-25", time: "08:30 ET", importance: "Средняя" },
+    { period: "2026-Q2", title: "GDP Q2 2026, advance estimate", date: "2026-07-30", time: "08:30 ET", importance: "Высокая" },
+    { period: "2026-Q2", title: "GDP Q2 2026, second estimate", date: "2026-08-27", time: "08:30 ET", importance: "Средняя" }
+  ],
+  fomc: [
+    { period: "2026-01", title: "FOMC Rate Decision", date: "2026-01-28", time: "14:00 ET", importance: "Высокая" },
+    { period: "2026-03", title: "FOMC Rate Decision + SEP", date: "2026-03-18", time: "14:00 ET", importance: "Высокая" },
+    { period: "2026-04", title: "FOMC Rate Decision", date: "2026-04-29", time: "14:00 ET", importance: "Высокая" },
+    { period: "2026-06", title: "FOMC Rate Decision + SEP", date: "2026-06-17", time: "14:00 ET", importance: "Высокая" },
+    { period: "2026-07", title: "FOMC Rate Decision", date: "2026-07-29", time: "14:00 ET", importance: "Высокая" },
+    { period: "2026-09", title: "FOMC Rate Decision + SEP", date: "2026-09-16", time: "14:00 ET", importance: "Высокая" },
+    { period: "2026-10", title: "FOMC Rate Decision", date: "2026-10-28", time: "14:00 ET", importance: "Высокая" },
+    { period: "2026-12", title: "FOMC Rate Decision + SEP", date: "2026-12-09", time: "14:00 ET", importance: "Высокая" }
+  ]
 };
-
-const investingCountryIds = [
-  "5",
-  "72",
-  "4",
-  "35",
-  "6",
-  "25",
-  "43",
-  "12",
-  "17",
-  "22",
-  "37"
-];
-
-/* =========================
-   MIME TYPES
-========================= */
 
 const mimeTypes = {
   ".html": "text/html; charset=utf-8",
@@ -126,19 +128,18 @@ function sendText(res, statusCode, text) {
    FETCH HELPERS
 ========================= */
 
-async function fetchJsonWithTimeout(url, timeoutMs = 12000) {
+async function fetchJsonWithTimeout(url, timeoutMs = 15000, options = {}) {
   const controller = new AbortController();
-
-  const timeoutId = setTimeout(() => {
-    controller.abort();
-  }, timeoutMs);
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
     const response = await fetch(url, {
+      ...options,
       signal: controller.signal,
       headers: {
         "User-Agent": "Mozilla/5.0 TradingNotes/1.0",
-        "Accept": "application/json,text/plain,*/*"
+        "Accept": "application/json,text/plain,*/*",
+        ...(options.headers || {})
       }
     });
 
@@ -152,54 +153,58 @@ async function fetchJsonWithTimeout(url, timeoutMs = 12000) {
   }
 }
 
-async function fetchTextResponseWithTimeout(url, options = {}, timeoutMs = 15000) {
+async function fetchTextWithTimeout(url, timeoutMs = 15000, options = {}) {
   const controller = new AbortController();
-
-  const timeoutId = setTimeout(() => {
-    controller.abort();
-  }, timeoutMs);
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
     const response = await fetch(url, {
       ...options,
-      signal: controller.signal
+      signal: controller.signal,
+      headers: {
+        "User-Agent": "Mozilla/5.0 TradingNotes/1.0",
+        "Accept": "text/csv,text/plain,text/html,*/*",
+        ...(options.headers || {})
+      }
     });
 
     const text = await response.text();
 
-    return {
-      ok: response.ok,
-      status: response.status,
-      statusText: response.statusText,
-      contentType: response.headers.get("content-type") || "",
-      headers: response.headers,
-      text
-    };
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}: ${text.slice(0, 180)}`);
+    }
+
+    return text;
   } finally {
     clearTimeout(timeoutId);
   }
 }
 
-function getBrowserHeaders(extraHeaders = {}) {
-  return {
-    "User-Agent":
-      "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-    "Accept":
-      "text/html,application/xhtml+xml,application/xml;q=0.9,application/json,text/javascript,*/*;q=0.8",
-    "Accept-Language": "en-US,en;q=0.9,ru;q=0.8",
-    "Connection": "keep-alive",
-    ...extraHeaders
-  };
-}
-
 /* =========================
-   DATE HELPERS
+   BASIC HELPERS
 ========================= */
 
-function addDays(date, days) {
-  const copy = new Date(date.getTime());
-  copy.setUTCDate(copy.getUTCDate() + days);
-  return copy;
+function clone(value) {
+  return JSON.parse(JSON.stringify(value));
+}
+
+function toFiniteNumber(value) {
+  if (value === undefined || value === null) {
+    return null;
+  }
+
+  const normalized = String(value)
+    .replace("%", "")
+    .replace(/\s+/g, "")
+    .replace(",", ".")
+    .trim();
+
+  if (!normalized || normalized === "." || normalized === "—" || normalized === "-") {
+    return null;
+  }
+
+  const number = Number(normalized);
+  return Number.isFinite(number) ? number : null;
 }
 
 function formatDateYYYYMMDD(date) {
@@ -213,57 +218,71 @@ function formatHumanDateTime(date = new Date()) {
     year: "numeric",
     hour: "2-digit",
     minute: "2-digit",
-    timeZone: "Europe/Paris"
+    timeZone: "Europe/Berlin"
   }).format(date);
 }
 
-/* =========================
-   BASIC PARSERS
-========================= */
-
-function decodeHtmlEntities(value) {
-  if (value === undefined || value === null) {
-    return "";
-  }
-
-  return String(value)
-    .replace(/&nbsp;/g, " ")
-    .replace(/&amp;/g, "&")
-    .replace(/&quot;/g, "\"")
-    .replace(/&#39;/g, "'")
-    .replace(/&apos;/g, "'")
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/&#(\d+);/g, function (_, code) {
-      return String.fromCharCode(Number(code));
-    })
-    .replace(/&#x([0-9a-fA-F]+);/g, function (_, code) {
-      return String.fromCharCode(parseInt(code, 16));
-    });
+function formatPercent(value, decimals = 2) {
+  const number = toFiniteNumber(value);
+  return number === null ? "—" : `${number.toFixed(decimals)}%`;
 }
 
-function stripTags(html) {
-  return decodeHtmlEntities(
-    String(html || "")
-      .replace(/<script[\s\S]*?<\/script>/gi, " ")
-      .replace(/<style[\s\S]*?<\/style>/gi, " ")
-      .replace(/<[^>]*>/g, " ")
-  )
-    .replace(/\s+/g, " ")
-    .trim();
-}
+function formatSignedPercent(value, decimals = 1) {
+  const number = toFiniteNumber(value);
 
-function normalizeText(value) {
-  if (value === undefined || value === null) {
-    return null;
+  if (number === null) {
+    return "Нет данных";
   }
 
-  const text = String(value)
-    .replace(/\u00a0/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
+  const sign = number > 0 ? "+" : "";
+  return `${sign}${number.toFixed(decimals)}%`;
+}
 
-  return text || null;
+function formatPlainNumber(value, decimals = 2) {
+  const number = toFiniteNumber(value);
+  return number === null ? "—" : number.toFixed(decimals);
+}
+
+function formatPpChange(value, decimals = 2) {
+  const number = toFiniteNumber(value);
+
+  if (number === null) {
+    return "Без изменений";
+  }
+
+  if (Math.abs(number) < 0.000001) {
+    return "0.00 п.п.";
+  }
+
+  const sign = number > 0 ? "+" : "-";
+  return `${sign}${Math.abs(number).toFixed(decimals)} п.п.`;
+}
+
+function formatBpChange(value) {
+  const number = toFiniteNumber(value);
+
+  if (number === null) {
+    return "Без изменений";
+  }
+
+  const rounded = Math.round(number);
+
+  if (rounded === 0) {
+    return "0 б.п.";
+  }
+
+  const sign = rounded > 0 ? "+" : "-";
+  return `${sign}${Math.abs(rounded)} б.п.`;
+}
+
+function getStateFromChange(value) {
+  const number = toFiniteNumber(value);
+
+  if (number === null || Math.abs(number) < 0.000001) {
+    return "neutral";
+  }
+
+  return number > 0 ? "up" : "down";
 }
 
 function parseCsvLine(line) {
@@ -323,109 +342,6 @@ function parseCsvRows(text) {
   });
 }
 
-function toFiniteNumber(value) {
-  if (value === undefined || value === null) {
-    return null;
-  }
-
-  const normalized = String(value)
-    .replace("%", "")
-    .replace(/\s+/g, "")
-    .replace(",", ".")
-    .trim();
-
-  if (!normalized || normalized === "." || normalized === "—" || normalized === "-") {
-    return null;
-  }
-
-  const number = Number(normalized);
-  return Number.isFinite(number) ? number : null;
-}
-
-function extractAttr(html, attrName) {
-  const pattern = new RegExp(`${attrName}\\s*=\\s*["']([^"']*)["']`, "i");
-  const match = String(html || "").match(pattern);
-
-  return match ? decodeHtmlEntities(match[1]).trim() : null;
-}
-
-function extractCellByClass(rowHtml, className) {
-  const pattern = new RegExp(
-    `<td\\b(?=[^>]*class=["'][^"']*\\b${className}\\b[^"']*["'])[^>]*>([\\s\\S]*?)<\\/td>`,
-    "i"
-  );
-
-  const match = String(rowHtml || "").match(pattern);
-
-  return match ? match[1] : "";
-}
-
-/* =========================
-   RATES HELPERS
-========================= */
-
-function formatPercent(value, decimals = 2) {
-  const number = toFiniteNumber(value);
-
-  if (number === null) {
-    return "—";
-  }
-
-  return `${number.toFixed(decimals)}%`;
-}
-
-function formatPlainNumber(value, decimals = 2) {
-  const number = toFiniteNumber(value);
-
-  if (number === null) {
-    return "—";
-  }
-
-  return number.toFixed(decimals);
-}
-
-function formatPpChange(value, decimals = 2) {
-  const number = toFiniteNumber(value);
-
-  if (number === null) {
-    return "Без изменений";
-  }
-
-  if (Math.abs(number) < 0.000001) {
-    return "0.00 п.п.";
-  }
-
-  const sign = number > 0 ? "+" : "-";
-  return `${sign}${Math.abs(number).toFixed(decimals)} п.п.`;
-}
-
-function formatBpChange(value) {
-  const number = toFiniteNumber(value);
-
-  if (number === null) {
-    return "Без изменений";
-  }
-
-  const rounded = Math.round(number);
-
-  if (rounded === 0) {
-    return "0 б.п.";
-  }
-
-  const sign = rounded > 0 ? "+" : "-";
-  return `${sign}${Math.abs(rounded)} б.п.`;
-}
-
-function getStateFromChange(value) {
-  const number = toFiniteNumber(value);
-
-  if (number === null || Math.abs(number) < 0.000001) {
-    return "neutral";
-  }
-
-  return number > 0 ? "up" : "down";
-}
-
 function getLatestAndPreviousObservations(rows, valueKey) {
   const valid = rows
     .map((row) => {
@@ -445,30 +361,142 @@ function getLatestAndPreviousObservations(rows, valueKey) {
 
   return {
     latest: valid[valid.length - 1],
-    previous: valid.length > 1 ? valid[valid.length - 2] : null
+    previous: valid.length > 1 ? valid[valid.length - 2] : null,
+    all: valid
   };
 }
+
+function isoDateToRussian(dateText) {
+  const date = new Date(`${dateText}T12:00:00Z`);
+
+  if (Number.isNaN(date.getTime())) {
+    return dateText || "Нет даты";
+  }
+
+  return new Intl.DateTimeFormat("ru-RU", {
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+    timeZone: "UTC"
+  }).format(date);
+}
+
+function getPastAndNextEvents(schedule, now = new Date()) {
+  const sorted = schedule
+    .slice()
+    .sort((a, b) => new Date(`${a.date}T23:59:59Z`) - new Date(`${b.date}T23:59:59Z`));
+
+  const nowTime = now.getTime();
+
+  const past = sorted.filter((event) => {
+    return new Date(`${event.date}T23:59:59Z`).getTime() <= nowTime;
+  });
+
+  const future = sorted.filter((event) => {
+    return new Date(`${event.date}T23:59:59Z`).getTime() > nowTime;
+  });
+
+  return {
+    last: past.length > 0 ? past[past.length - 1] : null,
+    next: future.length > 0 ? future[0] : null,
+    upcoming: future.slice(0, 6)
+  };
+}
+
+function eventToRelease(event) {
+  if (!event) {
+    return {
+      title: "Событие не найдено",
+      date: "Ожидает обновления",
+      time: "—"
+    };
+  }
+
+  return {
+    title: event.title,
+    date: isoDateToRussian(event.date),
+    time: event.time
+  };
+}
+
+function eventToUpcoming(event) {
+  return {
+    name: event.title,
+    date: isoDateToRussian(event.date),
+    time: event.time,
+    importance: event.importance || "Средняя"
+  };
+}
+
+/* =========================
+   FALLBACK READERS
+========================= */
+
+function readRatesFallbackData() {
+  try {
+    const content = fs.readFileSync(RATES_FALLBACK_FILE, "utf8");
+    const parsed = JSON.parse(content);
+
+    return {
+      updatedAt: parsed.updatedAt || "Fallback JSON",
+      items: parsed.items || {}
+    };
+  } catch (error) {
+    return {
+      updatedAt: "Fallback JSON не найден",
+      items: {}
+    };
+  }
+}
+
+function readCalendarFallbackData() {
+  try {
+    const content = fs.readFileSync(CALENDAR_FALLBACK_FILE, "utf8");
+
+    const sandbox = {
+      window: {},
+      console: {
+        log: function () {},
+        warn: function () {},
+        error: function () {}
+      }
+    };
+
+    sandbox.window.window = sandbox.window;
+
+    vm.createContext(sandbox);
+    vm.runInContext(content, sandbox, {
+      filename: CALENDAR_FALLBACK_FILE,
+      timeout: 1000
+    });
+
+    if (!sandbox.window.calendarData || !sandbox.window.calendarData.items) {
+      throw new Error("window.calendarData не найден");
+    }
+
+    return clone(sandbox.window.calendarData);
+  } catch (error) {
+    return {
+      updatedAt: "Fallback calendar-data.js не найден",
+      items: {}
+    };
+  }
+}
+
+/* =========================
+   FRED / RATES
+========================= */
 
 async function fetchFredSeries(seriesId) {
   const url = `https://fred.stlouisfed.org/graph/fredgraph.csv?id=${encodeURIComponent(seriesId)}`;
 
-  const response = await fetchTextResponseWithTimeout(
-    url,
-    {
-      method: "GET",
-      headers: {
-        "User-Agent": "Mozilla/5.0 TradingNotes/1.0",
-        "Accept": "text/csv,text/plain,*/*"
-      }
-    },
-    15000
-  );
+  const text = await fetchTextWithTimeout(url, 15000, {
+    headers: {
+      "Accept": "text/csv,text/plain,*/*"
+    }
+  });
 
-  if (!response.ok) {
-    throw new Error(`FRED ${seriesId}: HTTP ${response.status}`);
-  }
-
-  const rows = parseCsvRows(response.text);
+  const rows = parseCsvRows(text);
 
   if (rows.length === 0) {
     throw new Error(`FRED ${seriesId}: пустой CSV`);
@@ -513,11 +541,9 @@ function buildFedItem(lowerSeries, upperSeries) {
 function buildYieldCurveItem(us10ySeries, us02ySeries) {
   const latestSpread = (us10ySeries.latest.value - us02ySeries.latest.value) * 100;
 
-  let previousSpread = latestSpread;
-
-  if (us10ySeries.previous && us02ySeries.previous) {
-    previousSpread = (us10ySeries.previous.value - us02ySeries.previous.value) * 100;
-  }
+  const previousSpread = us10ySeries.previous && us02ySeries.previous
+    ? (us10ySeries.previous.value - us02ySeries.previous.value) * 100
+    : latestSpread;
 
   const change = latestSpread - previousSpread;
 
@@ -533,37 +559,24 @@ function buildYieldCurveItem(us10ySeries, us02ySeries) {
 async function fetchBoECurrentRate() {
   const url = "https://www.bankofengland.co.uk/boeapps/database/Bank-Rate.asp";
 
-  const response = await fetchTextResponseWithTimeout(
-    url,
-    {
-      method: "GET",
-      headers: {
-        "User-Agent": "Mozilla/5.0 TradingNotes/1.0",
-        "Accept": "text/html,*/*"
-      }
-    },
-    15000
-  );
+  const html = await fetchTextWithTimeout(url, 15000, {
+    headers: {
+      "Accept": "text/html,*/*"
+    }
+  });
 
-  if (!response.ok) {
-    throw new Error(`BoE Bank Rate: HTTP ${response.status}`);
-  }
+  const text = html
+    .replace(/<[^>]*>/g, " ")
+    .replace(/\s+/g, " ");
 
-  const text = stripTags(response.text);
   const currentMatch = text.match(/Current official Bank Rate\s+([0-9]+(?:\.[0-9]+)?)%/i);
 
   if (!currentMatch) {
     throw new Error("BoE Bank Rate: не удалось найти текущее значение");
   }
 
-  const value = toFiniteNumber(currentMatch[1]);
-
-  if (value === null) {
-    throw new Error("BoE Bank Rate: значение не является числом");
-  }
-
   return {
-    value: formatPercent(value, 2),
+    value: formatPercent(currentMatch[1], 2),
     change: "Без изменений",
     asOf: formatHumanDateTime(new Date()),
     state: "neutral",
@@ -574,23 +587,13 @@ async function fetchBoECurrentRate() {
 async function fetchStooqQuote(symbol) {
   const url = `https://stooq.com/q/l/?s=${encodeURIComponent(symbol)}&f=sd2t2ohlcv&h&e=csv`;
 
-  const response = await fetchTextResponseWithTimeout(
-    url,
-    {
-      method: "GET",
-      headers: {
-        "User-Agent": "Mozilla/5.0 TradingNotes/1.0",
-        "Accept": "text/csv,text/plain,*/*"
-      }
-    },
-    15000
-  );
+  const text = await fetchTextWithTimeout(url, 15000, {
+    headers: {
+      "Accept": "text/csv,text/plain,*/*"
+    }
+  });
 
-  if (!response.ok) {
-    throw new Error(`Stooq ${symbol}: HTTP ${response.status}`);
-  }
-
-  const rows = parseCsvRows(response.text);
+  const rows = parseCsvRows(text);
 
   if (rows.length === 0) {
     throw new Error(`Stooq ${symbol}: пустой CSV`);
@@ -622,13 +625,16 @@ async function fetchYahooChartQuote(symbol) {
   const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodedSymbol}?range=5d&interval=1d`;
 
   const json = await fetchJsonWithTimeout(url, 15000);
-  const result = json?.chart?.result?.[0];
+  const result = json && json.chart && json.chart.result && json.chart.result[0];
 
   if (!result) {
     throw new Error(`Yahoo ${symbol}: нет chart result`);
   }
 
-  const quote = result?.indicators?.quote?.[0] || {};
+  const quote = result.indicators && result.indicators.quote && result.indicators.quote[0]
+    ? result.indicators.quote[0]
+    : {};
+
   const closeArray = quote.close || [];
   const timestamps = result.timestamp || [];
 
@@ -646,6 +652,7 @@ async function fetchYahooChartQuote(symbol) {
   const latest = valid[valid.length - 1];
   const previous = valid.length > 1 ? valid[valid.length - 2] : latest;
   const change = latest.value - previous.value;
+
   const asOfDate = latest.timestamp
     ? new Date(latest.timestamp * 1000).toISOString().slice(0, 10)
     : formatDateYYYYMMDD(new Date());
@@ -659,23 +666,6 @@ async function fetchYahooChartQuote(symbol) {
     state: getStateFromChange(change),
     source: `Yahoo Finance ${symbol}`
   };
-}
-
-function readRatesFallbackData() {
-  try {
-    const content = fs.readFileSync(RATES_FALLBACK_FILE, "utf8");
-    const parsed = JSON.parse(content);
-
-    return {
-      updatedAt: parsed.updatedAt || "Fallback JSON",
-      items: parsed.items || {}
-    };
-  } catch (error) {
-    return {
-      updatedAt: "Fallback JSON не найден",
-      items: {}
-    };
-  }
 }
 
 function applyFallbackItem(items, fallbackItems, id, error, errors) {
@@ -696,10 +686,12 @@ async function fetchRatesData() {
   const items = { ...fallbackItems };
   const errors = [];
 
-  const fredRequests = Object.entries(FRED_SERIES).map(async ([key, seriesId]) => {
-    const data = await fetchFredSeries(seriesId);
-    return [key, data];
-  });
+  const fredRequests = Object.entries(FRED_SERIES)
+    .filter(([key]) => key !== "gdpGrowth")
+    .map(async ([key, seriesId]) => {
+      const data = await fetchFredSeries(seriesId);
+      return [key, data];
+    });
 
   const fredSettled = await Promise.allSettled(fredRequests);
   const fred = {};
@@ -920,412 +912,616 @@ async function handleRates(req, res) {
 }
 
 /* =========================
-   INVESTING CALENDAR HELPERS
+   BLS / CALENDAR
 ========================= */
 
-function extractCookieHeader(headers) {
-  if (!headers) {
-    return "";
-  }
+async function fetchBlsSeries(seriesIds, startYear, endYear) {
+  const url = "https://api.bls.gov/publicAPI/v2/timeseries/data/";
 
-  if (typeof headers.getSetCookie === "function") {
-    const cookies = headers.getSetCookie();
+  const json = await fetchJsonWithTimeout(url, 20000, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Accept": "application/json"
+    },
+    body: JSON.stringify({
+      seriesid: seriesIds,
+      startyear: String(startYear),
+      endyear: String(endYear),
+      calculations: false
+    })
+  });
 
-    if (Array.isArray(cookies) && cookies.length > 0) {
-      return cookies
-        .map((cookie) => cookie.split(";")[0])
-        .filter(Boolean)
-        .join("; ");
-    }
-  }
-
-  const singleCookieHeader = headers.get("set-cookie");
-
-  if (!singleCookieHeader) {
-    return "";
-  }
-
-  return singleCookieHeader
-    .split(",")
-    .map((cookie) => cookie.split(";")[0])
-    .filter(Boolean)
-    .join("; ");
-}
-
-async function getInvestingCookies() {
-  const now = Date.now();
-
-  if (investingCookieCache.value && investingCookieCache.expiresAt > now) {
-    return investingCookieCache.value;
-  }
-
-  try {
-    const response = await fetchTextResponseWithTimeout(
-      INVESTING_CALENDAR_PAGE_URL,
-      {
-        method: "GET",
-        headers: getBrowserHeaders({
-          "Referer": INVESTING_BASE_URL
-        })
-      },
-      15000
+  if (
+    !json ||
+    json.status !== "REQUEST_SUCCEEDED" ||
+    !json.Results ||
+    !Array.isArray(json.Results.series)
+  ) {
+    throw new Error(
+      `BLS API не вернул данные: ${
+        json && json.message ? json.message.join("; ") : "unknown error"
+      }`
     );
-
-    const cookieHeader = extractCookieHeader(response.headers);
-
-    investingCookieCache.value = cookieHeader;
-    investingCookieCache.expiresAt = now + 6 * 60 * 60 * 1000;
-
-    return cookieHeader;
-  } catch (error) {
-    return "";
   }
+
+  const result = {};
+
+  json.Results.series.forEach((series) => {
+    result[series.seriesID] = (series.data || [])
+      .filter((row) => /^M\d{2}$/.test(row.period))
+      .map((row) => {
+        return {
+          seriesId: series.seriesID,
+          year: Number(row.year),
+          period: row.period,
+          month: Number(row.period.replace("M", "")),
+          periodKey: `${row.year}-${row.period}`,
+          value: toFiniteNumber(row.value),
+          rawValue: row.value
+        };
+      })
+      .filter((row) => row.value !== null)
+      .sort((a, b) => {
+        if (a.year !== b.year) {
+          return a.year - b.year;
+        }
+
+        return a.month - b.month;
+      });
+  });
+
+  return result;
 }
 
-function extractCountryFromFlagCell(flagCellHtml) {
-  const titleMatch = String(flagCellHtml || "").match(
-    /<span\b[^>]*title=["']([^"']+)["'][^>]*>/i
-  );
-
-  if (titleMatch) {
-    return normalizeText(decodeHtmlEntities(titleMatch[1]));
+function latestSeriesRows(rows) {
+  if (!Array.isArray(rows) || rows.length === 0) {
+    return {
+      latest: null,
+      previous: null,
+      yearAgo: null
+    };
   }
 
-  return normalizeText(stripTags(flagCellHtml));
-}
+  const latest = rows[rows.length - 1];
+  const previous = rows.length > 1 ? rows[rows.length - 2] : null;
 
-function parseInvestingImportance(rowHtml) {
-  const sentimentCell = extractCellByClass(rowHtml, "sentiment");
-  const title = extractAttr(sentimentCell, "title") || "";
-  const fullIconCount = (sentimentCell.match(/grayFullBullishIcon/gi) || []).length;
-
-  let level = 1;
-
-  if (fullIconCount >= 3) {
-    level = 3;
-  } else if (fullIconCount === 2) {
-    level = 2;
-  } else if (/high/i.test(title) || /высок/i.test(title)) {
-    level = 3;
-  } else if (/medium/i.test(title) || /сред/i.test(title)) {
-    level = 2;
-  }
-
-  const label =
-    level >= 3
-      ? "Высокая"
-      : level === 2
-        ? "Средняя"
-        : "Низкая";
+  const yearAgo = rows.find((row) => {
+    return row.year === latest.year - 1 && row.month === latest.month;
+  }) || null;
 
   return {
-    level,
-    label
+    latest,
+    previous,
+    yearAgo
   };
 }
 
-function extractInvestingCalendarHtml(responseText) {
-  try {
-    const json = JSON.parse(responseText);
-
-    if (json && typeof json.data === "string") {
-      return {
-        html: json.data,
-        responseType: "json",
-        jsonKeys: Object.keys(json)
-      };
-    }
-
-    if (json && typeof json.html === "string") {
-      return {
-        html: json.html,
-        responseType: "json",
-        jsonKeys: Object.keys(json)
-      };
-    }
-
-    return {
-      html: responseText,
-      responseType: "json-without-html",
-      jsonKeys: Object.keys(json || {})
-    };
-  } catch (error) {
-    return {
-      html: responseText,
-      responseType: "html",
-      jsonKeys: []
-    };
+function monthOverMonthPercent(latest, previous) {
+  if (!latest || !previous || previous.value === 0) {
+    return null;
   }
+
+  return ((latest.value / previous.value) - 1) * 100;
 }
 
-function detectInvestingBlock(html) {
-  const lower = String(html || "").toLowerCase();
-
-  if (lower.includes("captcha")) {
-    return "captcha";
+function yearOverYearPercent(latest, yearAgo) {
+  if (!latest || !yearAgo || yearAgo.value === 0) {
+    return null;
   }
 
-  if (lower.includes("access denied")) {
-    return "access denied";
-  }
-
-  if (lower.includes("blocked")) {
-    return "blocked";
-  }
-
-  if (lower.includes("cloudflare")) {
-    return "cloudflare";
-  }
-
-  return null;
+  return ((latest.value / yearAgo.value) - 1) * 100;
 }
 
-function parseInvestingCalendarRows(html) {
-  const events = [];
-  const sourceHtml = String(html || "");
+function findScheduleByPeriod(schedule, periodKey) {
+  return schedule.find((event) => event.period === periodKey) || null;
+}
 
-  const rowMatches = sourceHtml.match(
-    /<tr\b(?=[^>]*(?:js-event-item|eventRowId_))[^>]*>[\s\S]*?<\/tr>/gi
-  );
+function buildCpiCalendarItem(baseItem, blsData) {
+  const allItems = latestSeriesRows(blsData[BLS_SERIES.cpiAllItems]);
+  const core = latestSeriesRows(blsData[BLS_SERIES.cpiCore]);
 
-  if (!rowMatches) {
-    return events;
+  if (!allItems.latest || !core.latest) {
+    throw new Error("BLS CPI: нет последних наблюдений");
   }
 
-  rowMatches.forEach((rowHtml, index) => {
-    const rowId = extractAttr(rowHtml, "id") || `event-${index + 1}`;
+  const currentPeriod = allItems.latest.periodKey;
+  const releaseEvents = getPastAndNextEvents(OFFICIAL_RELEASE_SCHEDULES.cpi);
+  const currentRelease = findScheduleByPeriod(OFFICIAL_RELEASE_SCHEDULES.cpi, currentPeriod) || releaseEvents.last;
 
-    const dateTime =
-      extractAttr(rowHtml, "data-event-datetime") ||
-      extractAttr(rowHtml, "data-event-datetime-local");
+  return {
+    ...baseItem,
+    sourceName: "BLS",
+    sourceUrl: "https://www.bls.gov/news.release/cpi.htm",
+    lastRelease: eventToRelease(currentRelease),
+    nextRelease: eventToRelease(releaseEvents.next),
+    metrics: [
+      {
+        name: "CPI YoY",
+        actual: formatSignedPercent(yearOverYearPercent(allItems.latest, allItems.yearAgo), 1),
+        previous: "Нет данных",
+        forecast: "См. консенсус перед релизом"
+      },
+      {
+        name: "CPI MoM",
+        actual: formatSignedPercent(monthOverMonthPercent(allItems.latest, allItems.previous), 1),
+        previous: "Нет данных",
+        forecast: "См. консенсус перед релизом"
+      },
+      {
+        name: "Core CPI YoY",
+        actual: formatSignedPercent(yearOverYearPercent(core.latest, core.yearAgo), 1),
+        previous: "Нет данных",
+        forecast: "См. консенсус перед релизом"
+      },
+      {
+        name: "Core CPI MoM",
+        actual: formatSignedPercent(monthOverMonthPercent(core.latest, core.previous), 1),
+        previous: "Нет данных",
+        forecast: "См. консенсус перед релизом"
+      }
+    ],
+    upcomingEvents: releaseEvents.upcoming.map(eventToUpcoming),
+    _liveStatus: "fresh",
+    _liveSource: "BLS API",
+    _liveUpdatedAt: new Date().toISOString()
+  };
+}
 
-    const timeCell = extractCellByClass(rowHtml, "time");
-    const flagCell = extractCellByClass(rowHtml, "flagCur");
-    const eventCell = extractCellByClass(rowHtml, "event");
-    const actualCell = extractCellByClass(rowHtml, "act");
-    const forecastCell = extractCellByClass(rowHtml, "fore");
-    const previousCell = extractCellByClass(rowHtml, "prev");
+function buildNfpCalendarItem(baseItem, blsData) {
+  const payrolls = latestSeriesRows(blsData[BLS_SERIES.nonfarmPayrolls]);
+  const unemployment = latestSeriesRows(blsData[BLS_SERIES.unemploymentRate]);
+  const earnings = latestSeriesRows(blsData[BLS_SERIES.averageHourlyEarnings]);
 
-    const time = normalizeText(stripTags(timeCell));
-    const country = extractCountryFromFlagCell(flagCell);
-    const event = normalizeText(stripTags(eventCell));
-    const actual = normalizeText(stripTags(actualCell));
-    const forecast = normalizeText(stripTags(forecastCell));
-    const previous = normalizeText(stripTags(previousCell));
+  if (!payrolls.latest || !unemployment.latest || !earnings.latest) {
+    throw new Error("BLS NFP: нет последних наблюдений");
+  }
 
-    const importance = parseInvestingImportance(rowHtml);
+  const payrollRows = blsData[BLS_SERIES.nonfarmPayrolls] || [];
+  const payrollChange = payrolls.previous ? payrolls.latest.value - payrolls.previous.value : null;
 
-    if (!event) {
-      return;
-    }
+  const previousPayrollChange =
+    payrolls.previous && payrollRows.length > 2
+      ? payrolls.previous.value - payrollRows[payrollRows.length - 3].value
+      : null;
 
-    events.push({
-      id: rowId,
-      dateTime,
-      time,
-      country,
-      event,
-      actual,
-      forecast,
-      previous,
-      importance: importance.label,
-      importanceLevel: importance.level
+  const currentPeriod = payrolls.latest.periodKey;
+  const releaseEvents = getPastAndNextEvents(OFFICIAL_RELEASE_SCHEDULES.nfp);
+  const currentRelease = findScheduleByPeriod(OFFICIAL_RELEASE_SCHEDULES.nfp, currentPeriod) || releaseEvents.last;
+
+  return {
+    ...baseItem,
+    sourceName: "BLS",
+    sourceUrl: "https://www.bls.gov/news.release/empsit.htm",
+    lastRelease: eventToRelease(currentRelease),
+    nextRelease: eventToRelease(releaseEvents.next),
+    metrics: [
+      {
+        name: "Nonfarm Payrolls",
+        actual: payrollChange === null
+          ? "Нет данных"
+          : `${payrollChange >= 0 ? "+" : ""}${Math.round(payrollChange)} тыс.`,
+        previous: previousPayrollChange === null
+          ? "Нет данных"
+          : `${previousPayrollChange >= 0 ? "+" : ""}${Math.round(previousPayrollChange)} тыс.`,
+        forecast: "См. консенсус перед релизом"
+      },
+      {
+        name: "Unemployment Rate",
+        actual: formatPercent(unemployment.latest.value, 1),
+        previous: unemployment.previous ? formatPercent(unemployment.previous.value, 1) : "Нет данных",
+        forecast: "См. консенсус перед релизом"
+      },
+      {
+        name: "Average Hourly Earnings MoM",
+        actual: formatSignedPercent(monthOverMonthPercent(earnings.latest, earnings.previous), 1),
+        previous: "Нет данных",
+        forecast: "См. консенсус перед релизом"
+      },
+      {
+        name: "Average Hourly Earnings YoY",
+        actual: formatSignedPercent(yearOverYearPercent(earnings.latest, earnings.yearAgo), 1),
+        previous: "Нет данных",
+        forecast: "См. консенсус перед релизом"
+      }
+    ],
+    upcomingEvents: releaseEvents.upcoming.map(eventToUpcoming),
+    _liveStatus: "fresh",
+    _liveSource: "BLS API",
+    _liveUpdatedAt: new Date().toISOString()
+  };
+}
+
+function buildGdpCalendarItem(baseItem, gdpSeries) {
+  const latest = gdpSeries.latest;
+  const previous = gdpSeries.previous;
+  const releaseEvents = getPastAndNextEvents(OFFICIAL_RELEASE_SCHEDULES.gdp);
+
+  return {
+    ...baseItem,
+    sourceName: "FRED / BEA",
+    sourceUrl: "https://fred.stlouisfed.org/series/A191RL1Q225SBEA",
+    lastRelease: eventToRelease(releaseEvents.last),
+    nextRelease: eventToRelease(releaseEvents.next),
+    metrics: [
+      {
+        name: "Real GDP QoQ annualized",
+        actual: formatSignedPercent(latest.value, 1),
+        previous: previous ? formatSignedPercent(previous.value, 1) : "Нет данных",
+        forecast: "См. консенсус перед релизом"
+      },
+      {
+        name: "Последнее наблюдение FRED",
+        actual: latest.date,
+        previous: previous ? previous.date : "Нет данных",
+        forecast: "BEA schedule"
+      }
+    ],
+    upcomingEvents: releaseEvents.upcoming.map(eventToUpcoming),
+    _liveStatus: "fresh",
+    _liveSource: "FRED / BEA",
+    _liveUpdatedAt: new Date().toISOString()
+  };
+}
+
+function buildFomcCalendarItem(baseItem, ratesData) {
+  const releaseEvents = getPastAndNextEvents(OFFICIAL_RELEASE_SCHEDULES.fomc);
+  const fedRate = ratesData && ratesData.items && ratesData.items.fed
+    ? ratesData.items.fed.value
+    : "Нет данных";
+
+  const upcoming = releaseEvents.upcoming.map(eventToUpcoming);
+
+  if (releaseEvents.next) {
+    upcoming.unshift({
+      name: "FOMC Press Conference",
+      date: isoDateToRussian(releaseEvents.next.date),
+      time: "14:30 ET",
+      importance: "Высокая"
+    });
+  }
+
+  return {
+    ...baseItem,
+    sourceName: "Federal Reserve",
+    sourceUrl: "https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm",
+    lastRelease: eventToRelease(releaseEvents.last),
+    nextRelease: eventToRelease(releaseEvents.next),
+    metrics: [
+      {
+        name: "Fed Funds Target Range",
+        actual: fedRate,
+        previous: fedRate,
+        forecast: "См. CME/FedWatch перед заседанием"
+      },
+      {
+        name: "Решение по ставке",
+        actual: "По последнему заседанию",
+        previous: "—",
+        forecast: "Зависит от ожиданий рынка"
+      },
+      {
+        name: "Следующий SEP / dot plot",
+        actual: "Июнь 2026",
+        previous: "Март 2026",
+        forecast: "Июнь 2026"
+      }
+    ],
+    upcomingEvents: upcoming.slice(0, 6),
+    _liveStatus: "fresh",
+    _liveSource: "Federal Reserve / FRED",
+    _liveUpdatedAt: new Date().toISOString()
+  };
+}
+
+function buildRateDecisionsCalendarItem(baseItem, ratesData) {
+  const rates = ratesData && ratesData.items ? ratesData.items : {};
+  const fomcEvents = getPastAndNextEvents(OFFICIAL_RELEASE_SCHEDULES.fomc);
+
+  return {
+    ...baseItem,
+    sourceName: "FRED / Federal Reserve / ECB / BoE / BoJ",
+    sourceUrl: "https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm",
+    lastRelease: {
+      title: "Последние решения центробанков",
+      date: formatHumanDateTime(new Date()),
+      time: "Автообновление"
+    },
+    nextRelease: eventToRelease(fomcEvents.next),
+    metrics: [
+      {
+        name: "ФРС",
+        actual: rates.fed ? rates.fed.value : "Нет данных",
+        previous: rates.fed ? rates.fed.change : "Нет данных",
+        forecast: "См. ожидания перед заседанием"
+      },
+      {
+        name: "ЕЦБ",
+        actual: rates.ecb ? rates.ecb.value : "Нет данных",
+        previous: rates.ecb ? rates.ecb.change : "Нет данных",
+        forecast: "См. ожидания перед заседанием"
+      },
+      {
+        name: "Bank of England",
+        actual: rates.boe ? rates.boe.value : "Нет данных",
+        previous: rates.boe ? rates.boe.change : "Нет данных",
+        forecast: "См. ожидания перед заседанием"
+      },
+      {
+        name: "Bank of Japan",
+        actual: rates.boj ? rates.boj.value : "Нет данных",
+        previous: rates.boj ? rates.boj.change : "Нет данных",
+        forecast: "См. ожидания перед заседанием"
+      }
+    ],
+    upcomingEvents: fomcEvents.upcoming.map(eventToUpcoming),
+    _liveStatus: "fresh",
+    _liveSource: "Rates API / FRED",
+    _liveUpdatedAt: new Date().toISOString()
+  };
+}
+
+function buildSpeechesCalendarItem(baseItem) {
+  const fomcEvents = getPastAndNextEvents(OFFICIAL_RELEASE_SCHEDULES.fomc);
+
+  const upcoming = [];
+
+  if (fomcEvents.next) {
+    upcoming.push({
+      name: "FOMC Press Conference",
+      date: isoDateToRussian(fomcEvents.next.date),
+      time: "14:30 ET",
+      importance: "Высокая"
+    });
+  }
+
+  fomcEvents.upcoming.slice(0, 4).forEach((event) => {
+    upcoming.push({
+      name: `${event.title} / возможные комментарии ФРС`,
+      date: isoDateToRussian(event.date),
+      time: event.time,
+      importance: event.importance
     });
   });
 
-  return events;
-}
-
-function buildInvestingCalendarBody() {
-  const today = new Date();
-
-  const dateFrom = formatDateYYYYMMDD(addDays(today, -3));
-  const dateTo = formatDateYYYYMMDD(addDays(today, 180));
-
-  const params = new URLSearchParams();
-
-  params.append("dateFrom", dateFrom);
-  params.append("dateTo", dateTo);
-  params.append("timeZone", "55");
-  params.append("timeFilter", "timeRemain");
-  params.append("currentTab", "custom");
-  params.append("limit_from", "0");
-  params.append("submitFilters", "1");
-
-  investingCountryIds.forEach((countryId) => {
-    params.append("country[]", countryId);
-  });
-
-  params.append("importance[]", "1");
-  params.append("importance[]", "2");
-  params.append("importance[]", "3");
-
   return {
-    body: params.toString(),
-    dateFrom,
-    dateTo
+    ...baseItem,
+    sourceName: "Federal Reserve / ECB / BoE calendars",
+    sourceUrl: "https://www.federalreserve.gov/newsevents.htm",
+    nextRelease: upcoming[0]
+      ? {
+          title: upcoming[0].name,
+          date: upcoming[0].date,
+          time: upcoming[0].time
+        }
+      : baseItem.nextRelease,
+    metrics: [
+      {
+        name: "Ближайшее событие",
+        actual: upcoming[0] ? upcoming[0].name : "Нет данных",
+        previous: "—",
+        forecast: "Риторика центробанков"
+      },
+      {
+        name: "Риск волатильности",
+        actual: "Высокий на FOMC / CPI / NFP",
+        previous: "Средний",
+        forecast: "Зависит от календаря"
+      }
+    ],
+    upcomingEvents: upcoming,
+    _liveStatus: "fresh",
+    _liveSource: "Federal Reserve calendar",
+    _liveUpdatedAt: new Date().toISOString()
   };
 }
 
-async function fetchInvestingCalendarData() {
-  const request = buildInvestingCalendarBody();
-  const cookies = await getInvestingCookies();
+async function fetchCalendarData() {
+  const fallback = readCalendarFallbackData();
+  const items = clone(fallback.items || {});
+  const errors = [];
 
-  const headers = getBrowserHeaders({
-    "Accept": "application/json, text/javascript, */*; q=0.01",
-    "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
-    "Origin": INVESTING_BASE_URL,
-    "Referer": INVESTING_CALENDAR_PAGE_URL,
-    "X-Requested-With": "XMLHttpRequest"
-  });
+  const currentYear = new Date().getUTCFullYear();
+  const startYear = Math.max(2024, currentYear - 2);
+  const endYear = Math.max(2026, currentYear);
 
-  if (cookies) {
-    headers.Cookie = cookies;
+  const [blsSettled, gdpSettled, ratesSettled] = await Promise.allSettled([
+    fetchBlsSeries(Object.values(BLS_SERIES), startYear, endYear),
+    fetchFredSeries(FRED_SERIES.gdpGrowth),
+    getRatesDataWithCache(false)
+  ]);
+
+  let blsData = null;
+  let gdpSeries = null;
+  let ratesData = null;
+
+  if (blsSettled.status === "fulfilled") {
+    blsData = blsSettled.value;
+  } else {
+    errors.push(`BLS: ${blsSettled.reason.message}`);
   }
 
-  const response = await fetchTextResponseWithTimeout(
-    INVESTING_CALENDAR_API_URL,
-    {
-      method: "POST",
-      headers,
-      body: request.body
-    },
-    20000
-  );
-
-  const extracted = extractInvestingCalendarHtml(response.text);
-  const blockReason = detectInvestingBlock(extracted.html);
-
-  if (!response.ok) {
-    throw new Error(
-      `Investing.com вернул HTTP ${response.status}. Фрагмент ответа: ${response.text.slice(0, 220)}`
-    );
+  if (gdpSettled.status === "fulfilled") {
+    gdpSeries = gdpSettled.value;
+  } else {
+    errors.push(`FRED GDP: ${gdpSettled.reason.message}`);
   }
 
-  if (blockReason) {
-    throw new Error(
-      `Investing.com заблокировал запрос. Причина: ${blockReason}. Фрагмент ответа: ${response.text.slice(0, 220)}`
-    );
+  if (ratesSettled.status === "fulfilled") {
+    ratesData = ratesSettled.value;
+  } else {
+    errors.push(`Rates: ${ratesSettled.reason.message}`);
   }
 
-  const events = parseInvestingCalendarRows(extracted.html);
+  try {
+    if (!blsData) {
+      throw new Error("BLS не ответил");
+    }
+
+    items.cpi = buildCpiCalendarItem(items.cpi || {}, blsData);
+  } catch (error) {
+    errors.push(`cpi: ${error.message}`);
+
+    if (items.cpi) {
+      items.cpi._liveStatus = "error";
+    }
+  }
+
+  try {
+    if (!blsData) {
+      throw new Error("BLS не ответил");
+    }
+
+    items.nfp = buildNfpCalendarItem(items.nfp || {}, blsData);
+  } catch (error) {
+    errors.push(`nfp: ${error.message}`);
+
+    if (items.nfp) {
+      items.nfp._liveStatus = "error";
+    }
+  }
+
+  try {
+    if (!gdpSeries) {
+      throw new Error("FRED GDP не ответил");
+    }
+
+    items.gdp = buildGdpCalendarItem(items.gdp || {}, gdpSeries);
+  } catch (error) {
+    errors.push(`gdp: ${error.message}`);
+
+    if (items.gdp) {
+      items.gdp._liveStatus = "error";
+    }
+  }
+
+  try {
+    items.fomc = buildFomcCalendarItem(items.fomc || {}, ratesData);
+  } catch (error) {
+    errors.push(`fomc: ${error.message}`);
+
+    if (items.fomc) {
+      items.fomc._liveStatus = "error";
+    }
+  }
+
+  try {
+    items.rateDecisions = buildRateDecisionsCalendarItem(items.rateDecisions || {}, ratesData);
+  } catch (error) {
+    errors.push(`rateDecisions: ${error.message}`);
+
+    if (items.rateDecisions) {
+      items.rateDecisions._liveStatus = "error";
+    }
+  }
+
+  try {
+    items.speeches = buildSpeechesCalendarItem(items.speeches || {});
+  } catch (error) {
+    errors.push(`speeches: ${error.message}`);
+
+    if (items.speeches) {
+      items.speeches._liveStatus = "error";
+    }
+  }
 
   return {
     ok: true,
     serverVersion: SERVER_VERSION,
-    source: "Investing.com",
-    updatedAt: new Date().toISOString(),
-    request: {
-      dateFrom: request.dateFrom,
-      dateTo: request.dateTo,
-      countryIds: investingCountryIds,
-      endpoint: "/economic-calendar/Service/getCalendarFilteredData"
-    },
-    responseMeta: {
-      status: response.status,
-      contentType: response.contentType,
-      responseType: extracted.responseType,
-      jsonKeys: extracted.jsonKeys,
-      htmlLength: extracted.html.length
-    },
-    rowsFound: events.length,
-    items: events
+    source: "BLS / FRED / Federal Reserve / Rates API with local fallback",
+    updatedAt: formatHumanDateTime(new Date()),
+    updatedAtISO: new Date().toISOString(),
+    refreshInterval: "3h lazy server cache",
+    items,
+    errors
   };
 }
 
-async function getInvestingCalendarDataWithCache(forceRefresh = false) {
+async function getCalendarDataWithCache(forceRefresh = false) {
   const now = Date.now();
 
   if (
     !forceRefresh &&
-    investingCalendarCache.payload &&
-    now - investingCalendarCache.createdAt < INVESTING_CALENDAR_CACHE_TTL_MS
+    calendarCache.payload &&
+    now - calendarCache.createdAt < CALENDAR_CACHE_TTL_MS
   ) {
     return {
-      ...investingCalendarCache.payload,
+      ...calendarCache.payload,
       cache: {
         status: "hit",
-        ageSeconds: Math.round((now - investingCalendarCache.createdAt) / 1000)
+        ageSeconds: Math.round((now - calendarCache.createdAt) / 1000),
+        ttlSeconds: Math.round(CALENDAR_CACHE_TTL_MS / 1000)
       }
     };
   }
 
-  const freshPayload = await fetchInvestingCalendarData();
-
-  investingCalendarCache.payload = freshPayload;
-  investingCalendarCache.createdAt = now;
-
-  return {
-    ...freshPayload,
-    cache: {
-      status: "miss",
-      ageSeconds: 0
-    }
-  };
-}
-
-async function handleInvestingCalendarTest(req, res) {
   try {
-    const data = await getInvestingCalendarDataWithCache(true);
+    const freshPayload = await fetchCalendarData();
 
-    sendJson(res, 200, {
+    calendarCache.payload = freshPayload;
+    calendarCache.createdAt = now;
+
+    return {
+      ...freshPayload,
+      cache: {
+        status: "miss",
+        ageSeconds: 0,
+        ttlSeconds: Math.round(CALENDAR_CACHE_TTL_MS / 1000)
+      }
+    };
+  } catch (error) {
+    if (calendarCache.payload) {
+      return {
+        ...calendarCache.payload,
+        warning: "Источники календаря не ответили, отдан серверный кэш",
+        cache: {
+          status: "stale",
+          ageSeconds: Math.round((now - calendarCache.createdAt) / 1000),
+          ttlSeconds: Math.round(CALENDAR_CACHE_TTL_MS / 1000)
+        }
+      };
+    }
+
+    const fallback = readCalendarFallbackData();
+
+    return {
       ok: true,
       serverVersion: SERVER_VERSION,
-      source: data.source,
-      updatedAt: data.updatedAt,
-      request: data.request,
-      responseMeta: data.responseMeta,
-      rowsFound: data.rowsFound,
-      sample: data.items.slice(0, 15)
-    });
-  } catch (error) {
-    sendJson(res, 502, {
-      ok: false,
-      serverVersion: SERVER_VERSION,
-      source: "Investing.com",
-      updatedAt: new Date().toISOString(),
-      message: "Не удалось получить календарь Investing.com",
-      error: error.message,
-      nextStep:
-        "Если здесь 403, captcha, cloudflare или access denied — Investing.com блокирует запрос с сервера."
-    });
+      source: "Fallback calendar-data.js",
+      updatedAt: fallback.updatedAt || "Fallback",
+      updatedAtISO: new Date().toISOString(),
+      items: fallback.items || {},
+      warning: `Live-источники не ответили: ${error.message}`,
+      cache: {
+        status: "fallback",
+        ageSeconds: null,
+        ttlSeconds: Math.round(CALENDAR_CACHE_TTL_MS / 1000)
+      },
+      errors: [error.message]
+    };
   }
 }
 
-async function handleInvestingCalendarLive(req, res) {
+async function handleCalendar(req, res) {
   try {
-    const data = await getInvestingCalendarDataWithCache(false);
+    const requestUrl = new URL(req.url, `http://${req.headers.host || "localhost"}`);
+    const forceRefresh = requestUrl.searchParams.get("refresh") === "1";
+    const data = await getCalendarDataWithCache(forceRefresh);
+
     sendJson(res, 200, data);
   } catch (error) {
-    if (investingCalendarCache.payload) {
-      sendJson(res, 200, {
-        ...investingCalendarCache.payload,
-        ok: true,
-        warning: "Источник не ответил, отдан старый кэш",
-        cache: {
-          status: "stale",
-          ageSeconds: Math.round(
-            (Date.now() - investingCalendarCache.createdAt) / 1000
-          )
-        }
-      });
-
-      return;
-    }
-
-    sendJson(res, 502, {
+    sendJson(res, 500, {
       ok: false,
       serverVersion: SERVER_VERSION,
-      source: "Investing.com",
       updatedAt: new Date().toISOString(),
-      message: "Не удалось получить live-календарь Investing.com",
+      message: "Ошибка сервера при загрузке календаря",
       error: error.message
     });
   }
 }
 
 /* =========================
-   COMMODITIES HELPERS
+   COMMODITIES
 ========================= */
 
 function getLastValidNumber(array) {
@@ -1378,16 +1574,17 @@ async function fetchYahooCommodity(item) {
 
   for (const url of urls) {
     try {
-      const json = await fetchJsonWithTimeout(url);
-
-      const result = json?.chart?.result?.[0];
+      const json = await fetchJsonWithTimeout(url, 15000);
+      const result = json && json.chart && json.chart.result && json.chart.result[0];
 
       if (!result) {
         throw new Error(`Yahoo did not return chart data for ${item.symbol}`);
       }
 
       const meta = result.meta || {};
-      const quote = result?.indicators?.quote?.[0] || {};
+      const quote = result.indicators && result.indicators.quote && result.indicators.quote[0]
+        ? result.indicators.quote[0]
+        : {};
 
       const closeArray = quote.close || [];
       const openArray = quote.open || [];
@@ -1398,15 +1595,13 @@ async function fetchYahooCommodity(item) {
       const lastCloseFromChart = getLastValidNumber(closeArray);
       const previousCloseFromChart = getPreviousValidNumber(closeArray);
 
-      const price =
-        typeof meta.regularMarketPrice === "number"
-          ? meta.regularMarketPrice
-          : lastCloseFromChart;
+      const price = typeof meta.regularMarketPrice === "number"
+        ? meta.regularMarketPrice
+        : lastCloseFromChart;
 
-      const previousClose =
-        typeof meta.chartPreviousClose === "number"
-          ? meta.chartPreviousClose
-          : previousCloseFromChart;
+      const previousClose = typeof meta.chartPreviousClose === "number"
+        ? meta.chartPreviousClose
+        : previousCloseFromChart;
 
       const open = getLastValidNumber(openArray);
       const high = getLastValidNumber(highArray);
@@ -1500,7 +1695,7 @@ async function handleCommodities(req, res) {
 }
 
 /* =========================
-   HEALTH / HEARTBEAT
+   HEALTH / LEGACY ROUTES
 ========================= */
 
 function handleHealth(req, res) {
@@ -1518,6 +1713,20 @@ function handleHeartbeat(req, res) {
     serverVersion: SERVER_VERSION,
     status: "heartbeat accepted",
     time: new Date().toISOString()
+  });
+}
+
+async function handleLegacyInvestingCalendar(req, res) {
+  const data = await getCalendarDataWithCache(false);
+
+  sendJson(res, 200, {
+    ok: true,
+    serverVersion: SERVER_VERSION,
+    source: "Official calendar replacement for legacy Investing endpoint",
+    updatedAt: data.updatedAtISO || new Date().toISOString(),
+    rowsFound: Object.keys(data.items || {}).length,
+    items: data.items || {},
+    warning: "Этот endpoint оставлен для совместимости. Основной endpoint: /api/calendar."
   });
 }
 
@@ -1649,6 +1858,11 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  if (url.startsWith("/api/calendar")) {
+    handleCalendar(req, res);
+    return;
+  }
+
   if (url.startsWith("/api/rates")) {
     handleRates(req, res);
     return;
@@ -1659,13 +1873,11 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  if (url.startsWith("/api/investing-calendar-test")) {
-    handleInvestingCalendarTest(req, res);
-    return;
-  }
-
-  if (url.startsWith("/api/investing-calendar-live")) {
-    handleInvestingCalendarLive(req, res);
+  if (
+    url.startsWith("/api/investing-calendar-live") ||
+    url.startsWith("/api/investing-calendar-test")
+  ) {
+    handleLegacyInvestingCalendar(req, res);
     return;
   }
 
@@ -1676,12 +1888,12 @@ server.listen(PORT, () => {
   console.log("======================================");
   console.log(`Server version: ${SERVER_VERSION}`);
   console.log(`Server is running on port: ${PORT}`);
-  console.log(`Health check: /api/health`);
-  console.log(`Rates API: /api/rates`);
-  console.log(`Rates API force refresh: /api/rates?refresh=1`);
-  console.log(`Commodities API: /api/commodities`);
-  console.log(`Investing Calendar Test API: /api/investing-calendar-test`);
-  console.log(`Investing Calendar Live API: /api/investing-calendar-live`);
+  console.log("Health check: /api/health");
+  console.log("Calendar API: /api/calendar");
+  console.log("Calendar API force refresh: /api/calendar?refresh=1");
+  console.log("Rates API: /api/rates");
+  console.log("Rates API force refresh: /api/rates?refresh=1");
+  console.log("Commodities API: /api/commodities");
   console.log("Auto-shutdown: disabled for Render");
   console.log("======================================");
 });
